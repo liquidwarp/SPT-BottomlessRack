@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        <IsTestProject>true</IsTestProject>
+        <GenerateDependencyFile>true</GenerateDependencyFile>
+    </PropertyGroup>
+    <ItemGroup>
+        <ProjectReference Include="..\Server\UnlockGearProgression.Server.csproj" />
+        <Compile Include="..\Shared\SpawnSession.cs" />
+        <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+        <PackageReference Include="NUnit" Version="4.3.2" />
+        <PackageReference Include="NUnit3TestAdapter" Version="5.0.0" />
+    </ItemGroup>
+    <!-- Use the same extension-data-enabled model assembly that the installed server loads. -->
+    <Target Name="UseInstalledModel" AfterTargets="Build">
+        <Copy SourceFiles="$(SPTPath)\SPT_Runtime\SPTarkov.Server.Core.dll" DestinationFolder="$(TargetDir)" />
+    </Target>
+</Project>

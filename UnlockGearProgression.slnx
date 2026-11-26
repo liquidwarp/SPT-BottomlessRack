@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="Client/UnlockGearProgression.Client.csproj" />
+  <Project Path="Server/UnlockGearProgression.Server.csproj" />
+</Solution>
