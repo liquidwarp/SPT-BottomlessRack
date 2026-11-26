@@ -92,6 +92,10 @@ $expectedMethods = [ordered]@{
     )
     'EFT.InventoryLogic.WeaponModdingManipulation' = $selectorMethods
     'EFT.InventoryLogic.EditBuildManipulation' = $selectorMethods
+    'EFT.InventoryLogic.DropdownManipulation' = @(
+        'System.Boolean Select(EFT.InventoryLogic.Item,EFT.InventoryLogic.Slot,Diz.LanguageExtensions.Error&)'
+        'System.Boolean SelectCheck(EFT.InventoryLogic.Item,EFT.InventoryLogic.Slot,Diz.LanguageExtensions.Error&)'
+    )
     'EFT.UI.EditBuildScreen' = @(
         'System.Void Show(EFT.InventoryLogic.Item,EFT.InventoryLogic.Item,EFT.InventoryLogic.InventoryController,EFT.IEftSession)'
         'System.Void method_15()'
@@ -133,9 +137,9 @@ try {
     }
     $fields = @{
         'EFT.UI.WeaponModding.ModdingScreenSlotView' = @('_locked')
-        'EFT.UI.EquipItemWindow' = @('_slot', '_viewList')
+        'EFT.UI.EquipItemWindow' = @('_slot', '_viewList', '_placeHolder')
         'EFT.UI.DragAndDrop.GridItemView' = @('TagName', '_tagColor', 'Caption')
-        'EFT.UI.ItemObserveScreen`2' = @('Item', 'RefreshingWeapon')
+        'EFT.UI.ItemObserveScreen`2' = @('Item', 'RefreshingWeapon', '_manipulation')
         'EFT.UI.EditBuildScreen' = @('_itemBody', '_playerItems', '_acceptableWeaponBodies')
         'EFT.UI.EquipmentBuildsScreen' = @('_currentBuild', '_realInventoryController', '_isApplying')
         'EFT.UI.UIInputNode' = @('UI')
@@ -193,6 +197,18 @@ if ($ClientAssembly) {
                 throw "$name no longer loads unlocks when its native screen opens."
             }
         }
+        foreach ($type in $plugin.GetTypes()) {
+            $menuCalls = $type.Methods.Body.Instructions.Operand | Where-Object {
+                $_ -is [Mono.Cecil.MethodReference] -and $_.DeclaringType.Name -ceq 'DropDownMenu' -and $_.Name -in 'Show', 'Close'
+            }
+            if ($menuCalls) { throw "$($type.FullName) controls the attachment dropdown." }
+        }
+        $builder = $plugin.GetType("$namespace.PreviewRows").Methods | Where-Object Name -CEQ 'BuildWeapon'
+        $construction = $builder.Body.Instructions.Operand | Where-Object { $_ -is [Mono.Cecil.MethodReference] }
+        if ($construction.FullName -cnotcontains 'EFT.InventoryLogic.Item EFT.ItemFactory::CreateItem(System.String,System.String,UnparsedData)' -or
+            $construction.FullName -cnotcontains 'System.Void EFT.InventoryLogic.Slot::Add(EFT.InventoryLogic.Item)') {
+            throw 'Weapon previews must bind the server recipe to detached EFT items and slots.'
+        }
     } finally {
         $plugin.Dispose()
     }
@@ -200,8 +216,9 @@ if ($ClientAssembly) {
 
     $selectorHooks = @{
         EquipPreviewTagPatch = @([EFT.UI.EquipItemWindow], 'RefreshItemViews')
-        ModdingPreviewLabelPatch = @([EFT.UI.WeaponModding.DropDownMenu], 'CreateDropdownModdingItemView')
-        BuildSlotLabelPatch = @([EFT.UI.WeaponModding.ModdingScreenSlotView], 'CreateModdingItemView')
+        ModdingPreviewLabelPatch = @([EFT.UI.DragAndDrop.ModdingSelectableItemView], 'Create')
+        InstallCheckPatch = @([EFT.InventoryLogic.DropdownManipulation], 'SelectCheck')
+        InstallPatch = @([EFT.InventoryLogic.DropdownManipulation], 'Select')
         EquippedModdingSlotPatch = @([EFT.UI.WeaponModding.ModdingScreenSlotView], 'Show')
         EquipmentPresets = @([EFT.UI.EquipmentBuildsScreen], 'EquipBuild')
         BuildAssembly = @([EFT.UI.EditBuildScreen], 'TryToAssembleBuild')
@@ -212,6 +229,11 @@ if ($ClientAssembly) {
         $targets = @($patch.GetCustomAttributesData() | Where-Object { $_.AttributeType.FullName -ceq 'HarmonyLib.HarmonyPatch' })
         if ($targets.Count -ne 1 -or $targets[0].ConstructorArguments[0].Value -ne $binding.Value[0] -or
             $targets[0].ConstructorArguments[1].Value -cne $binding.Value[1]) { throw "Unexpected selector target on $patch" }
+    }
+    $installHook = $client.GetType("$namespace.InstallPatch").GetCustomAttributes([HarmonyLib.HarmonyPatch], $false)[0].info
+    $wrapper = $installHook.declaringType.GetMethod($installHook.methodName, $installHook.argumentTypes)
+    if ($wrapper.GetParameters().Count -ne 3 -or !$wrapper.GetParameters()[2].IsOut) {
+        throw 'The live preview hook must intercept the three-argument click before the four-argument swap.'
     }
     $tag = $client.GetType("$namespace.EquipPreviewTagPatch").GetMethod('Postfix', $flags)
     $priority = $tag.GetCustomAttributesData() | Where-Object { $_.AttributeType.FullName -ceq 'HarmonyLib.HarmonyPriority' }
@@ -230,8 +252,51 @@ if ($ClientAssembly) {
     $revision = $gear.GetField('_revision', $flags)
     $originalRevision = $revision.GetValue($null)
     $buildLabel = $client.GetType("$namespace.ModdingPreviewLabelPatch").GetMethod('IsUnlockedBuildPart', $flags)
+    $previewRows = $client.GetType("$namespace.PreviewRows")
+    $previews = $previewRows.GetField('Previews', $flags).GetValue($null)
+    $cache = $previewRows.GetField('ByTemplate', $flags).GetValue($null)
     try {
         $revision.SetValue($null, 1)
+        $null = $previews.Add($pickerItem)
+        $check = $client.GetType("$namespace.InstallCheckPatch").GetMethod('Prefix', $flags)
+        $click = $client.GetType("$namespace.InstallPatch").GetMethod('Prefix', $flags)
+        $live = [Runtime.CompilerServices.RuntimeHelpers]::GetUninitializedObject([EFT.InventoryLogic.WeaponModdingManipulation])
+        $edit = [Runtime.CompilerServices.RuntimeHelpers]::GetUninitializedObject([EFT.InventoryLogic.EditBuildManipulation])
+        $slot = [EFT.InventoryLogic.Slot]::new('mod_scope', [EFT.InventoryLogic.ItemFilter[]]@(), $false, 0)
+        foreach ($operation in $check, $click) {
+            # A live click with an active Unity screen goes through the asynchronous stash-use tests.
+            $available = $operation -eq $check
+            $revision.SetValue($null, $(if ($available) { 1 } else { -1 }))
+            foreach ($selector in $edit, $live) {
+                foreach ($part in $pickerItem, $fittedItem) {
+                    $argsForHook = [object[]]@($selector, $part, $slot, $null, $false)
+                    $passToEft = $operation.Invoke($null, $argsForHook)
+                    $ourPreview = $selector -eq $live -and $part -eq $pickerItem
+                    if ($passToEft -eq $ourPreview -or ($ourPreview -and $argsForHook[4] -ne $available) -or
+                        ($ourPreview -and !$available -and $null -eq $argsForHook[3])) {
+                        throw "Wrong selection route for $($selector.GetType().Name) and $($part.Id)."
+                    }
+                }
+            }
+        }
+        $revision.SetValue($null, 1)
+        $id = $pickerItem.StringTemplateId
+        $null = $unlocks.Add($id)
+        $cache.Add($id, $pickerItem)
+        $include = $previewRows.GetMethod('Include', $flags)
+        foreach ($editBuild in $false, $true) {
+            foreach ($hasOwned in $false, $true) {
+                $owned = [EFT.InventoryLogic.Item[]]@()
+                if ($hasOwned) { $owned = [EFT.InventoryLogic.Item[]]@($fittedItem) }
+                $rows = @($include.Invoke($null, [object[]]@($owned, $slot, $editBuild, $false)))
+                $expected = if ($hasOwned -and $editBuild) { @($fittedItem) }
+                    elseif ($hasOwned) { @($fittedItem, $pickerItem) } else { @($pickerItem) }
+                if ($rows.Count -ne @($expected).Count) { throw "Wrong row count (Edit Build=$editBuild, owned=$hasOwned)" }
+                for ($i = 0; $i -lt $rows.Count; $i++) {
+                    if (![object]::ReferenceEquals($rows[$i], @($expected)[$i])) { throw 'A native picker item was substituted.' }
+                }
+            }
+        }
         foreach ($screenType in [EFT.UI.EditBuildScreen], [EFT.UI.WeaponModding.WeaponModdingScreen]) {
             $screen = [Runtime.CompilerServices.RuntimeHelpers]::GetUninitializedObject($screenType)
             $context = [EFT.InventoryLogic.ModdingSelectableItemContext]::new($screen)
@@ -247,10 +312,14 @@ if ($ClientAssembly) {
             }
         }
     } finally {
+        $null = $cache.Remove($pickerItem.StringTemplateId)
+        $null = $previews.Remove($pickerItem)
         $null = $unlocks.Remove($pickerItem.StringTemplateId)
         $revision.SetValue($null, $originalRevision)
     }
     Write-Output 'PASS  An earned template labels both Edit Build item instances and leaves ordinary Modding rows alone.'
+    Write-Output 'PASS  Both dropdown wrappers intercept only the exact live preview and pass the same-template owned item and Edit Build through.'
+    Write-Output 'PASS  Edit Build keeps the native item or appends one earned choice. Live Modding keeps owned and catalogue rows distinct.'
 
     $hooks = @(
         $client.GetType("$namespace.WeaponModificationBonusPatch", $true).GetMethod('Postfix', $flags)

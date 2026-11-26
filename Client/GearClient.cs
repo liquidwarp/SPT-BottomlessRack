@@ -20,6 +20,7 @@ internal static class GearClient
     }
 
     internal static readonly HashSet<string> Unlocked = new HashSet<string>();
+    internal static Dictionary<string, WeaponBuildPart[]> WeaponBuilds { get; private set; } = new();
     internal static InventoryController Inventory { get; private set; }
     internal static event Action Updated;
     private static IEftSession _session;
@@ -39,6 +40,7 @@ internal static class GearClient
             _revision = -1;
             _requests = new SpawnSession();
             Unlocked.Clear();
+            WeaponBuilds.Clear();
             PreviewRows.Reset();
             _loading = null;
         }
@@ -75,6 +77,7 @@ internal static class GearClient
             if (_revision == data.Revision) return;
             Unlocked.Clear();
             foreach (var id in data.Templates) Unlocked.Add(id);
+            WeaponBuilds = data.WeaponBuilds;
             _revision = data.Revision;
             Updated?.Invoke();
         }

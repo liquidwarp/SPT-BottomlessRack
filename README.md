@@ -1,6 +1,6 @@
 # Unlock Gear Progression
 
-Permanently unlock equipable gear and attachments that you have extracted with, received by main or ever had access to via a trader assort,
+Permanently unlock equipment and attachments you extract with, collect in your stash, or gain access to through a trader.
 
 Use EFT’s equipment picker, modding, builds and presets views to seamlessly create free copies of unlocked equipment.
 
@@ -10,6 +10,10 @@ Use EFT’s equipment picker, modding, builds and presets views to seamlessly cr
 | Modding | Choose a part marked **Unlocked** to create it and fit it to the selected slot. |
 | Edit Build | Assemble a weapon preset to use owned parts and automatically create missing unlocked parts. An unlocked weapon body can also be supplied. EFT offers to buy any remaining locked parts as usual. |
 | Equipment presets | Equip a saved loadout to use your worn and stored items first. Missing unlocked gear is created automatically. Only the remaining shortages appear in the purchase window. |
+
+Weapons use their published default build when one is available and usable. Otherwise the mod chooses the complete trader offer with the fewest fitted parts, then the lowest loyalty level. A weapon with no complete offer can be issued bare if it already has every vital part. Earning a weapon also earns its standard parts, including on existing profiles.
+
+With Choo² Trader Modding, **Free with Assemble** identifies parts supplied by EFT's Assemble action. Choo²'s **Quick Buy Items** makes a paid trader purchase. With WeaponBuilderSearch, newly earned parts appear the next time the slot list opens after a catalogue refresh.
 
 Modding and Edit Build are available from the stash before you construct the Workbench, including the Edit Build button on the bottom menu.
 

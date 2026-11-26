@@ -103,12 +103,25 @@ public sealed class GearService(ProfileHelper profiles, GearDefinitions gear, Tr
             if (_pendingSaves.ContainsKey(id)) await SaveGrant(id);
             // An open selector also notices direct stash grants made outside the inventory queue.
             Observe(id, checkTraders: reconcile);
-            var state = UnlockLedger.Read(profiles.GetFullProfile(id));
-            return new()
+            var profile = profiles.GetFullProfile(id);
+            var state = UnlockLedger.Read(profile);
+            if (reconcile)
             {
-                Revision = state.Templates.Count, Receipt = state.Receipt,
-                Templates = reconcile ? state.Templates.Where(t => MongoId.IsValidMongoId(t) && gear.Eligible(t)).Order().ToArray() : []
-            };
+                var updated = state.ReconcileWeaponParts(gear);
+                StoreDiscovery(id, profile, state, updated);
+                state = updated;
+            }
+            var catalogue = new Catalogue { Revision = state.Templates.Count, Receipt = state.Receipt };
+            if (!reconcile) return catalogue;
+            catalogue.Templates = state.Templates.Where(t => MongoId.IsValidMongoId(t) && gear.CanIssue(t))
+                .Order(StringComparer.Ordinal).ToArray();
+            foreach (var tpl in catalogue.Templates)
+                if (gear.IsWeapon(tpl))
+                    catalogue.WeaponBuilds.Add(tpl, gear.Recipe(tpl).Select(p => new WeaponBuildPart
+                    {
+                        TemplateId = p.Template.ToString(), ParentIndex = p.ParentIndex, SlotId = p.Slot
+                    }).ToArray());
+            return catalogue;
         }
         finally { gate.Release(); }
     }

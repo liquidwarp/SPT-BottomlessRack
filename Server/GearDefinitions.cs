@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using SPTarkov.DI.Annotations;
+using SPTarkov.Server.Core.DI;
 using SPTarkov.Server.Core.Models.Common;
 using SPTarkov.Server.Core.Models.Eft.Common.Tables;
 using SPTarkov.Server.Core.Models.Enums;
@@ -7,9 +8,16 @@ using SPTarkov.Server.Core.Models.Spt.Tables;
 
 namespace Liquidwarp.UnlockGearProgression.Server;
 
-[Injectable(InjectionType.Singleton)]
-public sealed class GearDefinitions(TemplateTable templates, GlobalTable globals)
+[Injectable(InjectionType.Singleton, TypePriority = int.MaxValue)]
+public sealed class GearDefinitions(TemplateTable templates, GlobalTable globals, TradersTable traders) : IOnLoad
 {
+    // SPT has finished registering modded content and has not started its trader update loop.
+    public Task OnLoadAsync(CancellationToken ct = default)
+    {
+        _recipes = new WeaponRecipes(templates, this).Load(globals, traders);
+        return Task.CompletedTask;
+    }
+
     private static readonly HashSet<MongoId> Families =
     [
         BaseClasses.WEAPON, BaseClasses.KNIFE, BaseClasses.MOD, BaseClasses.MAGAZINE,
@@ -19,15 +27,12 @@ public sealed class GearDefinitions(TemplateTable templates, GlobalTable globals
     ];
 
     private readonly ConcurrentDictionary<MongoId, bool> _eligible = new();
-    private readonly ConcurrentDictionary<MongoId, RecipePart[]> _recipes = new();
-    private readonly Lazy<Dictionary<MongoId, Preset>> _defaults = new(() =>
-        globals.ItemPresets.Values.Where(p => p.Encyclopedia.HasValue && p.Items?.Count > 0)
-            .GroupBy(p => p.Encyclopedia!.Value).ToDictionary(g => g.Key, g => g.First()));
+    private ConcurrentDictionary<MongoId, RecipePart[]> _recipes = new();
 
     internal IEnumerable<MongoId> Ancestors(MongoId id)
     {
         // Guard bad item-mod hierarchies. Vanilla trees are only a few levels deep.
-        for (var depth = 0; depth < 64 && templates.Items.TryGetValue(id, out var item); depth++)
+        for (var depth = 0; depth < 64 && templates.Items.TryGetValue(id, out var item) && item != null; depth++)
         {
             yield return id;
             var parent = item.Parent;
@@ -39,7 +44,7 @@ public sealed class GearDefinitions(TemplateTable templates, GlobalTable globals
 
     public bool Eligible(MongoId id) => _eligible.GetOrAdd(id, tpl =>
     {
-        if (!templates.Items.TryGetValue(tpl, out var item) || item.Type != "Item" ||
+        if (!templates.Items.TryGetValue(tpl, out var item) || item?.Type != "Item" ||
             item.Properties is not { QuestItem: not true, Width: > 0, Height: > 0 })
             return false;
         bool matchesFamily = false;
@@ -52,46 +57,32 @@ public sealed class GearDefinitions(TemplateTable templates, GlobalTable globals
         return matchesFamily;
     });
 
-    public RecipePart[] Recipe(MongoId id) => _recipes.GetOrAdd(id, MakeRecipe);
+    public RecipePart[] Recipe(MongoId id) => _recipes.GetOrAdd(id, MakeStandaloneRecipe);
 
-    private RecipePart[] MakeRecipe(MongoId id)
+    public bool CanIssue(MongoId id) => Eligible(id) && Recipe(id).Length > 0;
+    public bool IsWeapon(MongoId id) => Ancestors(id).Contains(BaseClasses.WEAPON);
+
+    private RecipePart[] MakeStandaloneRecipe(MongoId id)
     {
-        var result = new List<RecipePart> { new(id, -1, null) };
-        if (Ancestors(id).Contains(BaseClasses.WEAPON) && _defaults.Value.TryGetValue(id, out var preset))
-        {
-            var root = preset.Items.FirstOrDefault(i => i.Template == id && i.ParentId == null);
-            if (root != null)
-            {
-                var children = preset.Items.ToLookup(i => i.ParentId);
-                var seen = new HashSet<MongoId> { root.Id };
-                void AddSlots(Item parent, int index)
-                {
-                    foreach (var child in children[parent.Id.ToString()])
-                    {
-                        if (!Eligible(child.Template) || !seen.Add(child.Id) ||
-                            templates.Items[parent.Template].Properties?.Slots?.Any(s => s.Name == child.SlotId) != true)
-                            continue;
-                        var next = result.Count;
-                        result.Add(new(child.Template, index, child.SlotId));
-                        AddSlots(child, next);
-                    }
-                }
-                AddSlots(root, 0);
-            }
-        }
+        if (!Eligible(id) || (IsWeapon(id) && WeaponRecipes.NeedsPart(templates.Items[id], []))) return [];
+        return WithIntegralInserts([new(id, -1, null)]);
+    }
 
+    internal RecipePart[] WithIntegralInserts(RecipePart[] parts)
+    {
         // Integral armor is specified by locked slots, including on modded armor without a preset.
-        var partsWithSlots = result.Count;
-        for (var i = 0; i < partsWithSlots; i++)
-            foreach (var slot in templates.Items[result[i].Template].Properties?.Slots ?? [])
+        List<RecipePart>? inserts = null;
+        for (var i = 0; i < parts.Length; i++)
+            foreach (var slot in templates.Items[parts[i].Template].Properties?.Slots ?? [])
             {
-                var filter = slot.Properties?.Filters?.FirstOrDefault(f => f.Locked == true);
+                if (slot?.Name is not { } name) continue;
+                var filter = slot.Properties?.Filters?.FirstOrDefault(f => f?.Locked == true);
                 if (filter == null) continue;
                 var insert = filter.Plate ?? filter.Filter?.FirstOrDefault();
                 if (insert.HasValue && Ancestors(insert.Value).Contains(BaseClasses.BUILT_IN_INSERTS))
-                    result.Add(new(insert.Value, i, slot.Name));
+                    (inserts ??= []).Add(new(insert.Value, i, name));
             }
-        return result.ToArray();
+        return inserts == null ? parts : [.. parts, .. inserts];
     }
 
     public List<Item> Create(MongoId id)

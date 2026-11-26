@@ -11,10 +11,10 @@ namespace Liquidwarp.UnlockGearProgression.Client;
 [HarmonyPatch(typeof(EditBuildScreen), nameof(EditBuildScreen.Show), typeof(Item), typeof(Item), typeof(InventoryController), typeof(IEftSession))]
 internal static class BuildScreenPatch
 {
-    private static void Postfix(EditBuildScreen __instance, InventoryController inventoryController, UIParent ___UI)
+    private static void Postfix(EditBuildScreen __instance, InventoryController inventoryController)
     {
-        GearClient.Updated += __instance.CheckForVitalParts;
-        ___UI.AddDisposable(() => GearClient.Updated -= __instance.CheckForVitalParts);
+        if (!GearClient.OutOfRaid) return;
+        SelectorRefresh.Watch(__instance.gameObject, __instance.CheckForVitalParts);
         GearClient.Enter(inventoryController);
     }
 }
@@ -49,10 +49,17 @@ internal static class BuildAssembly
     private static bool Prefix(EditBuildScreen __instance, Item[] ____acceptableWeaponBodies, UIParent ___UI)
     {
         if (!GearClient.OutOfRaid || !(Plan(__instance) is Weapon plan)) return true;
+        if (_assembling) return false;
         var target = Target(__instance) as Weapon;
         if (target == null && (____acceptableWeaponBodies?.Length > 0 || !GearClient.Unlocked.Contains(plan.TemplateId)))
             return true;
-        if (!_assembling) GearClient.Run(Assemble(__instance, target, plan, ___UI.CancellationToken));
+        if (target != null)
+        {
+            var missing = Missing(__instance, target);
+            if (missing.Count == 0 || (GearClient.Ready && !missing.Exists(line => GearClient.Unlocked.Contains(line.TemplateId))))
+                return true;
+        }
+        GearClient.Run(Assemble(__instance, target, plan, ___UI.CancellationToken));
         return false;
     }
 
@@ -149,21 +156,35 @@ internal static class UnlockedWeaponBodyPatch
 [HarmonyPatch(typeof(EditBuildScreen), nameof(EditBuildScreen.GetMissingBuildItems))]
 internal static class MissingBuildItemsPatch
 {
-    private static bool Prefix(EditBuildScreen __instance, Item ____itemBody, ref List<Item> __result)
+    private static void Postfix(EditBuildScreen __instance, Item ____itemBody, ref List<Item> __result)
     {
-        if (!GearClient.Ready || !(____itemBody is Weapon target)) return true;
+        if (!GearClient.Ready || __result == null || !(____itemBody is Weapon target)) return;
+        // EFT can count the same physical attachment as installed and available. Correct earned shortages
+        // by quantity and preserve the native result (and any other provider's entries) for locked parts.
         var counts = new Dictionary<string, int>();
-        foreach (var line in BuildAssembly.Missing(__instance, target)) counts[line.TemplateId] = line.Quantity;
-        var missing = new List<Item>();
+        foreach (var line in BuildAssembly.Missing(__instance, target))
+            if (GearClient.Unlocked.Contains(line.TemplateId)) counts[line.TemplateId] = line.Quantity;
+        if (counts.Count == 0 && !__result.Exists(item => GearClient.Unlocked.Contains(item.TemplateId))) return;
+        var missing = new List<Item>(__result.Count);
+        bool changed = false;
+        foreach (var item in __result)
+        {
+            if (GearClient.Unlocked.Contains(item.TemplateId))
+            {
+                if (!counts.TryGetValue(item.TemplateId, out var count) || count == 0) { changed = true; continue; }
+                counts[item.TemplateId] = count - 1;
+            }
+            missing.Add(item);
+        }
         foreach (var item in __instance.GetItemsInBuild())
         {
             if (counts.TryGetValue(item.TemplateId, out var count) && count > 0)
             {
                 missing.Add(item);
                 counts[item.TemplateId] = count - 1;
+                changed = true;
             }
         }
-        __result = missing;
-        return false;
+        if (changed) __result = missing;
     }
 }

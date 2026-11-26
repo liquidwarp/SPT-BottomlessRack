@@ -85,7 +85,6 @@ public abstract class ServerFixture
             RepeatableQuests = null!, Handbook = null!, Customization = [], Dialogue = null!, Profiles = [], Prices = [],
             DefaultEquipmentPresets = [], Achievements = [], CustomAchievements = [], LocationServices = null! };
         Globals = Json.DeserializeFromFile<GlobalTable>(Path.Combine(data, "database/globals.json"))!;
-        Gear = new(Templates, Globals);
         _core = Json.DeserializeFromFile<CoreConfig>(Path.Combine(data, "configs/core.json"))!;
         var localeConfig = Json.DeserializeFromFile<LocaleConfig>(Path.Combine(data, "configs/locale.json"))!;
         var locale = new LocaleService(TestLog.For<LocaleService>(), null!, localeConfig);
@@ -105,7 +104,7 @@ public abstract class ServerFixture
     }
 
     [SetUp]
-    public void NewCharacter()
+    public async Task NewCharacter()
     {
         Session = new MongoId();
         var stash = NewItem(StashTpl);
@@ -118,11 +117,19 @@ public abstract class ServerFixture
         Saves.AddProfile(Profile);
         Profiles = new(TestLog.For<ProfileHelper>(), Templates, Globals, Cloner, Saves, null!, null!, null!, null!);
         TradersDb = new();
+        Activity = new(new());
+        await LoadGear();
+    }
+
+    protected async Task<GearDefinitions> LoadGear()
+    {
+        Gear = new(Templates, Globals, TradersDb);
+        await Gear.OnLoadAsync();
         var purchases = new TraderPurchasePersisterService(TestLog.For<TraderPurchasePersisterService>(), null!, new(), Profiles, null!, null!);
         var assorts = new TraderAssortHelper(TestLog.For<TraderAssortHelper>(), TradersDb, new(), Profiles,
             new(TestLog.For<AssortHelper>(), null!), purchases, null!, null!, Cloner);
-        Activity = new(new());
         Service = new(Profiles, Gear, TradersDb, assorts, Placement, Saves, Http, Activity, TestLog.For<GearService>());
+        return Gear;
     }
 
     protected ItemEventCallbacks Callbacks(params ItemEventRouter[] routers) => new(Http, TestLog.For<ItemEventCallbacks>(),

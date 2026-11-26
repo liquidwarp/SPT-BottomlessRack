@@ -30,8 +30,9 @@ internal static class PreviewRows
         {
             try
             {
-                item = factory.CreateAndFillItem(id);
-                if (item is Weapon) item = factory.GetPresetItem(id);
+                item = GearClient.WeaponBuilds.TryGetValue(id, out var parts)
+                    ? BuildWeapon(factory, id, parts)
+                    : factory.CreateAndFillItem(id);
                 var owner = new ItemController(item, factory.NextId, "Unlocked gear", false, EOwnerType.HideoutProduction);
                 item.CurrentAddress = owner.CreateItemAddress();
                 Previews.Add(item);
@@ -46,28 +47,33 @@ internal static class PreviewRows
         return item;
     }
 
-    internal static IEnumerable<Item> Include(IEnumerable<Item> owned, Slot slot,
-        EditBuildManipulation editor = null, bool equipment = false)
+    private static Item BuildWeapon(ItemFactory factory, string template, WeaponBuildPart[] parts)
     {
-        var shown = editor == null ? null : new HashSet<string>();
-        HashSet<string> available = null;
-        if (editor?._playerItems != null)
+        if (parts.Length == 0 || parts[0].TemplateId != template || parts[0].ParentIndex != -1)
+            throw new InvalidOperationException("Missing standard weapon root.");
+        var items = new Item[parts.Length];
+        for (var i = 0; i < parts.Length; i++)
         {
-            available = new HashSet<string>();
-            foreach (var part in editor._playerItems) available.Add(part.TemplateId);
+            var part = parts[i];
+            var item = items[i] = factory.CreateItem(factory.NextId, part.TemplateId, null);
+            if (i == 0) continue;
+            if (part.ParentIndex < 0 || part.ParentIndex >= i || !(items[part.ParentIndex] is CompoundItem parent))
+                throw new InvalidOperationException("Invalid standard weapon parent.");
+            var slot = Array.Find(parent.Slots, s => s.ID == part.SlotId);
+            if (slot == null || slot.ContainedItem != null || !slot.CanAccept(item))
+                throw new InvalidOperationException($"Cannot mount {part.TemplateId} in {part.SlotId}.");
+            slot.Add(item);
         }
+        return items[0];
+    }
+
+    internal static IEnumerable<Item> Include(IEnumerable<Item> owned, Slot slot,
+        bool editBuild = false, bool equipment = false)
+    {
+        var shown = editBuild ? new HashSet<string>() : null;
         foreach (var item in owned)
         {
-            if (editor != null)
-            {
-                var id = item.TemplateId.ToString();
-                shown.Add(id);
-                if (available != null && !available.Contains(id) && GearClient.Unlocked.Contains(id))
-                {
-                    yield return Get(id) ?? item;
-                    continue;
-                }
-            }
+            shown?.Add(item.TemplateId);
             yield return item;
         }
         foreach (var id in CandidateTemplates(slot))
@@ -133,12 +139,13 @@ internal static class EquipPreviewTagPatch
 {
     // Equip From Weapon Rack writes its location tags in a postfix on the same refresh.
     [HarmonyPriority(Priority.Last)]
-    private static void Postfix(ViewList<Item, ItemView> ____viewList)
+    private static void Postfix(ViewList<Item, ItemView> ____viewList, GameObject ____placeHolder)
     {
         if (____viewList == null) return;
         foreach (var (item, row) in ____viewList)
         {
             if (!PreviewRows.IsPreview(item) || !(row is GridItemView view) || view == null) continue;
+            if (____placeHolder != null && ____placeHolder.activeSelf) ____placeHolder.SetActive(false);
             var label = view.TagName;
             if (label == null) continue;
             // EFT's text-only prefab leaves the panel field empty. Binding it also lets EFT
@@ -202,6 +209,7 @@ internal static class ModdingScreenPatch
     {
         if (!GearClient.OutOfRaid) return;
         Current = __instance;
+        SelectorRefresh.Watch(__instance.gameObject);
         GearClient.Enter(inventoryController);
     }
 }
@@ -232,34 +240,53 @@ internal static class ModdingRowsPatch
 [HarmonyPatch(typeof(EditBuildManipulation), nameof(EditBuildManipulation.GetItemCollections))]
 internal static class BuildRowsPatch
 {
-    private static void Postfix(EditBuildManipulation __instance, Slot slot, ref IEnumerable<Item> __result)
+    [HarmonyPriority(Priority.Last)]
+    private static void Postfix(Slot slot, ref IEnumerable<Item> __result)
     {
-        if (GearClient.Ready) __result = PreviewRows.Include(__result, slot, __instance);
+        if (GearClient.Ready) __result = PreviewRows.Include(__result, slot, editBuild: true);
     }
 }
 
-[HarmonyPatch(typeof(WeaponModdingManipulation), nameof(WeaponModdingManipulation.Select))]
+[HarmonyPatch(typeof(DropdownManipulation), nameof(DropdownManipulation.SelectCheck))]
+internal static class InstallCheckPatch
+{
+    private static bool Prefix(DropdownManipulation __instance, Item item, Slot slot, ref Error error, ref bool __result) =>
+        InstallPatch.PreviewSelection(__instance, item, slot, false, ref error, ref __result);
+}
+
+[HarmonyPatch(typeof(DropdownManipulation), nameof(DropdownManipulation.Select),
+    new[] { typeof(Item), typeof(Slot), typeof(Error) }, new[] { ArgumentType.Normal, ArgumentType.Normal, ArgumentType.Out })]
 internal static class InstallPatch
 {
-    private static bool Prefix(WeaponModdingManipulation __instance, Item item, Slot slot, bool simulate,
-        ref Error error, ref bool __result)
+    private static readonly AccessTools.FieldRef<WeaponModdingScreen, DropdownManipulation> Manipulation =
+        AccessTools.FieldRefAccess<WeaponModdingScreen, DropdownManipulation>("_manipulation");
+
+    private static bool Prefix(DropdownManipulation __instance, Item item, Slot slot, ref Error error, ref bool __result) =>
+        PreviewSelection(__instance, item, slot, true, ref error, ref __result);
+
+    internal static bool PreviewSelection(DropdownManipulation selector, Item item, Slot slot, bool clicked,
+        ref Error error, ref bool result)
     {
-        if (!PreviewRows.IsPreview(item)) return true;
-        error = null;
-        __result = GearClient.Ready && slot.CanAccept(item);
-        if (__result && !simulate) GearClient.Run(Install(__instance, slot, item.TemplateId));
+        if (!(selector is WeaponModdingManipulation) || !PreviewRows.IsPreview(item)) return true;
+        result = GearClient.Ready && slot.CanAccept(item);
+        error = result ? null : new StringError("This unlocked part cannot be fitted here.");
+        if (result && clicked) GearClient.Run(Install(selector, slot, item.TemplateId));
         return false;
     }
 
-    private static async Task Install(WeaponModdingManipulation selector, Slot slot, string template)
+    private static async Task Install(DropdownManipulation selector, Slot slot, string template)
     {
         var screen = ModdingScreenPatch.Current;
+        if (screen == null || !screen.isActiveAndEnabled || !ReferenceEquals(Manipulation(screen), selector)) return;
         var previous = slot.ContainedItem;
-        var target = screen != null ? ModdingScreenPatch.ShownItem(screen) : null;
+        var target = ModdingScreenPatch.ShownItem(screen);
         var outcome = await StashSelection.IssueAndUse(template, GearClient.One, item =>
         {
-            if (screen == null || !screen.isActiveAndEnabled || ModdingScreenPatch.ShownItem(screen) != target ||
-                slot.ContainedItem != previous || !selector.Select(item, slot, false, out _)) return false;
+            var parent = slot.ParentItem;
+            if (!GearClient.Ready || screen == null || !screen.isActiveAndEnabled ||
+                !ReferenceEquals(Manipulation(screen), selector) || ModdingScreenPatch.ShownItem(screen) != target ||
+                slot.ContainedItem != previous || parent == null || (parent != target && !parent.IsChildOf(target)) ||
+                !selector.Select(item, slot, out _)) return false;
             screen.WeaponUpdate();
             return true;
         });
@@ -267,112 +294,61 @@ internal static class InstallPatch
     }
 }
 
-[HarmonyPatch(typeof(DropDownMenu), nameof(DropDownMenu.CreateDropdownModdingItemView))]
+[HarmonyPatch(typeof(ModdingSelectableItemView), nameof(ModdingSelectableItemView.Create))]
 internal static class ModdingPreviewLabelPatch
 {
-    [HarmonyPriority(Priority.Last)]
-    private static void Postfix(DropDownMenu __instance, SelectableItemContext sourceContext, Item item, RectTransform container)
+    private static void Postfix(ModdingSelectableItemView __result, ModdingSelectableItemContext sourceContext, Item item)
     {
-        if (PreviewRows.IsPreview(item) || IsUnlockedBuildPart(sourceContext, item))
-            Show(__instance, item, container);
-    }
-
-    // Edit Build uses catalogue entries in the picker and clones the chosen item onto the plan.
-    internal static bool IsUnlockedBuildPart(SelectableItemContext context, Item item) =>
-        context is ModdingSelectableItemContext { ModdingSelectionContext: EditBuildScreen } &&
-        GearClient.Ready && GearClient.Unlocked.Contains(item.TemplateId);
-
-    internal static void Show(UIElement owner, Item item, Transform container)
-    {
-        if (container.childCount == 0) return;
-        if (!container.GetChild(container.childCount - 1).TryGetComponent(out ModdingSelectableItemView view) ||
-            view.Item != item || view.Caption == null) return;
-
-        // Trader Modding appends the background and caption to the mod-type icon.
-        // Read the newest pair because Unity defers destruction when the dropdown reopens.
-        var icon = view.ItemViewStats != null ? view.ItemViewStats._modTypeIcon : null;
-        var parent = icon != null ? icon.transform : null;
-        Image box;
-        TextMeshProUGUI label;
-        if (parent != null && parent.childCount >= 2 &&
-            parent.GetChild(parent.childCount - 1).name == "ItemPriceTag" &&
-            parent.GetChild(parent.childCount - 1).TryGetComponent(out label) &&
-            parent.GetChild(parent.childCount - 2).name == "ItemPriceTagBG2" &&
-            parent.GetChild(parent.childCount - 2).TryGetComponent(out box))
-        {
-            box.transform.SetParent(view.transform, false);
-            label.transform.SetParent(box.transform, false);
-        }
-        else
-        {
-            // Earned parts can have no offer, and Trader Modding is optional.
-            box = new GameObject("Unlocked tag", typeof(RectTransform), typeof(Image)).GetComponent<Image>();
-            box.transform.SetParent(view.transform, false);
-            label = UnityEngine.Object.Instantiate(view.Caption, box.transform, false);
-            owner.AddDisposable(() =>
-            {
-                box.gameObject.SetActive(false);
-                UnityEngine.Object.Destroy(box.gameObject);
-            });
-        }
-
+        var buildPart = IsUnlockedBuildPart(sourceContext, item);
+        if ((!buildPart && !PreviewRows.IsPreview(item)) || __result == null || __result.Caption == null) return;
+        var caption = __result.Caption;
+        var box = new GameObject("Unlocked gear badge", typeof(RectTransform), typeof(Image)).GetComponent<Image>();
+        box.transform.SetParent(__result.transform, false);
         var rect = box.rectTransform;
-        rect.anchorMin = Vector2.zero;
-        rect.anchorMax = new Vector2(1, 0);
-        rect.offsetMin = new Vector2(14, 1);
-        rect.offsetMax = new Vector2(-1, Mathf.Ceil(view.Caption.fontSize) + 4);
-        box.color = Color.black;
+        rect.anchorMin = new Vector2(0, 1);
+        rect.anchorMax = Vector2.one;
+        var top = -Mathf.Ceil(caption.fontSize * 1.25f) - 1;
+        rect.offsetMin = new Vector2(1, top - Mathf.Ceil(caption.fontSize * (buildPart ? 2.4f : 1.3f)));
+        rect.offsetMax = new Vector2(-1, top);
+        box.color = new Color(0, 0, 0, 0.85f);
         box.raycastTarget = false;
 
-        var textRect = label.rectTransform;
-        textRect.anchorMin = Vector2.zero;
-        textRect.anchorMax = Vector2.one;
-        textRect.offsetMin = new Vector2(1, 0);
-        textRect.offsetMax = new Vector2(-1, 0);
-        label.text = "Unlocked";
-        label.margin = Vector4.zero;
+        var label = new GameObject("Caption", typeof(RectTransform), typeof(TextMeshProUGUI)).GetComponent<TextMeshProUGUI>();
+        label.transform.SetParent(rect, false);
+        label.rectTransform.anchorMin = Vector2.zero;
+        label.rectTransform.anchorMax = Vector2.one;
+        label.rectTransform.offsetMin = new Vector2(1, 0);
+        label.rectTransform.offsetMax = new Vector2(-1, 0);
+        label.font = caption.font;
+        label.text = buildPart ? "Unlocked\nFree with Assemble" : "Unlocked";
         label.enableAutoSizing = true;
-        label.fontSizeMax = view.Caption.fontSize;
+        label.fontSizeMax = caption.fontSize;
         label.fontSizeMin = Mathf.Min(6f, label.fontSizeMax);
         label.enableWordWrapping = false;
-        label.overflowMode = TextOverflowModes.Truncate;
         label.alignment = TextAlignmentOptions.Center;
         label.raycastTarget = false;
-        label.gameObject.SetActive(true);
-    }
-}
 
-[HarmonyPatch(typeof(ModdingScreenSlotView), nameof(ModdingScreenSlotView.CreateModdingItemView))]
-internal static class BuildSlotLabelPatch
-{
-    [HarmonyPriority(Priority.Last)]
-    private static void Postfix(ModdingScreenSlotView __instance, SelectableItemContext itemContext, Item item, Transform container)
-    {
-        if (ModdingPreviewLabelPatch.IsUnlockedBuildPart(itemContext, item))
-            ModdingPreviewLabelPatch.Show(__instance, item, container);
-    }
-}
-
-[HarmonyPatch(typeof(DropDownMenu), nameof(DropDownMenu.Show))]
-internal static class DropdownRefreshPatch
-{
-    private static void Postfix(DropDownMenu __instance, ModdingSelectableItemContext itemContext,
-        ModdingScreenSlotView slotView, ItemController itemController)
-    {
-        if (!GearClient.OutOfRaid) return;
-        SelectorRefresh.Watch(__instance.gameObject, () =>
+        // EFT disposes this binding before lending the pooled view to another item.
+        var context = __result.ItemContext;
+        void Clear()
         {
-            if (!__instance.Open || slotView == null || !slotView.isActiveAndEnabled) return;
-            __instance.Close();
-            __instance.Show(itemContext, slotView, itemController);
-        });
+            context.OnDisposed -= Clear;
+            if (box == null) return;
+            box.gameObject.SetActive(false);
+            UnityEngine.Object.Destroy(box.gameObject);
+        }
+        context.OnDisposed += Clear;
     }
+
+    internal static bool IsUnlockedBuildPart(SelectableItemContext context, Item item) =>
+        item != null && context is ModdingSelectableItemContext { ModdingSelectionContext: EditBuildScreen } &&
+        GearClient.Ready && GearClient.Unlocked.Contains(item.TemplateId);
 }
 
 public sealed class SelectorRefresh : MonoBehaviour
 {
     private Action _refresh;
-    internal static void Watch(GameObject owner, Action refresh)
+    internal static void Watch(GameObject owner, Action refresh = null)
     {
         var watcher = owner.GetComponent<SelectorRefresh>();
         if (watcher == null) watcher = owner.AddComponent<SelectorRefresh>();
@@ -387,7 +363,6 @@ public sealed class SelectorRefresh : MonoBehaviour
     {
         CancelInvoke(nameof(Poll));
         GearClient.Updated -= OnChanged;
-        _refresh = null;
     }
     private void OnChanged() => _refresh?.Invoke();
     private void Poll() => GearClient.Refresh(checkOnly: true);

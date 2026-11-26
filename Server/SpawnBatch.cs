@@ -34,8 +34,8 @@ public sealed record SpawnBatch(SpawnReceipt Receipt, List<Item> Additions)
             return new(ledger.Receipt, []);
         if (sequence - 1 != ledger.Receipt.Sequence)
             throw new SpawnRejected("Gear requests are out of sync. Check your stash before trying again.");
-        if (canonical.Any(l => !ledger.Templates.Contains(l.TemplateId) || !gear.Eligible(l.TemplateId)))
-            throw new SpawnRejected("This gear is locked or no longer installed.");
+        if (canonical.Any(l => !ledger.Templates.Contains(l.TemplateId) || !gear.CanIssue(l.TemplateId)))
+            throw new SpawnRejected("This gear is locked, missing, or has no usable standard build.");
 
         if (pmc.Inventory?.Items == null || !pmc.Inventory.Stash.HasValue)
             throw new SpawnRejected("This profile has no main stash.");

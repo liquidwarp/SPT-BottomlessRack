@@ -44,4 +44,20 @@ public sealed record UnlockLedger
         }
         return next == null ? this : this with { Templates = next };
     }
+
+    public UnlockLedger ReconcileWeaponParts(GearDefinitions definitions)
+    {
+        HashSet<string>? next = null;
+        foreach (var id in Templates)
+        {
+            if (!MongoId.IsValidMongoId(id) || !definitions.IsWeapon(id)) continue;
+            foreach (var part in definitions.Recipe(id))
+            {
+                var tpl = part.Template.ToString();
+                if ((next ?? Templates).Contains(tpl) || !definitions.Eligible(part.Template)) continue;
+                (next ??= new(Templates)).Add(tpl);
+            }
+        }
+        return next == null ? this : this with { Templates = next };
+    }
 }

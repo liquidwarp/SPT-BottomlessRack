@@ -1,3 +1,4 @@
+#nullable enable
 using System;
 using System.Collections.Generic;
 #if NET10_0_OR_GREATER
@@ -72,5 +73,14 @@ public sealed class Catalogue
 {
     [WireName("revision")] public int Revision { get; set; }
     [WireName("templates")] public string[] Templates { get; set; } = Array.Empty<string>();
+    [WireName("weaponBuilds")] public Dictionary<string, WeaponBuildPart[]> WeaponBuilds { get; set; } = new();
     [WireName("receipt")] public SpawnReceipt Receipt { get; set; } = new SpawnReceipt();
+}
+
+// Parent precedes child. The root has index -1 and no slot. Item IDs belong to each new copy.
+public sealed class WeaponBuildPart
+{
+    [WireName("templateId")] public string TemplateId { get; set; } = "";
+    [WireName("parentIndex")] public int ParentIndex { get; set; }
+    [WireName("slotId")] public string? SlotId { get; set; }
 }

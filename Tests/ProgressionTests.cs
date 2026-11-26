@@ -211,14 +211,14 @@ public sealed class ProgressionTests : ServerFixture
         try
         {
             Award(tpl);
-            Assert.That(Gear.Create(tpl).Select(i => i.Template), Is.EqualTo(new[] { tpl }));
+            Assert.That(Gear.CanIssue(tpl), Is.False);
             var snapshot = Json.Serialize(Profile);
             Templates.Items.Remove(tpl);
-            var absent = new GearDefinitions(Templates, Globals);
+            var absent = new GearDefinitions(Templates, Globals, TradersDb);
             Assert.That(absent.Eligible(tpl), Is.False);
             Assert.That(UnlockLedger.Read(Json.Deserialize<SptProfile>(snapshot)!).Templates, Does.Contain(tpl.ToString()));
             Templates.Items.Add(tpl, custom);
-            Assert.That(new GearDefinitions(Templates, Globals).Eligible(tpl), Is.True);
+            Assert.That(new GearDefinitions(Templates, Globals, TradersDb).Eligible(tpl), Is.True);
         }
         finally { Templates.Items.Remove(tpl); }
     }

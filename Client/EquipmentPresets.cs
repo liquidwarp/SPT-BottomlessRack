@@ -22,8 +22,12 @@ internal static class EquipmentPresets
         // The mannequin's storage action transfers from its own equipment, not the stash.
         if (!GearClient.OutOfRaid || ____currentBuild == null || ____currentBuild.BuildType == EEquipmentBuildType.Storage)
             return true;
-        if (!_equipping && !____isApplying)
-            GearClient.Run(Equip(__instance, ____currentBuild, ____realInventoryController, ___UI.CancellationToken));
+        if (_equipping || ____isApplying) return false;
+        if (!__instance.TryApplyBuild(out var missing, out _)) return false;
+        var ready = GearClient.Ready && ReferenceEquals(GearClient.Inventory, ____realInventoryController);
+        if (missing.Count == 0 || (ready && !missing.Exists(item => GearClient.Unlocked.Contains(item.TemplateId))))
+            return true;
+        GearClient.Run(Equip(__instance, ____currentBuild, ____realInventoryController, ___UI.CancellationToken));
         return false;
     }
 
