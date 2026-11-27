@@ -90,10 +90,6 @@ $expectedMethods = [ordered]@{
     )
     'EFT.UI.ItemUiContext' = @(
         'EFT.UI.DragAndDrop.ItemView CreateSlotItemView(EFT.InventoryLogic.Item,EFT.InventoryLogic.ItemContext,EFT.InventoryLogic.ItemController,EFT.InventoryLogic.IItemOwner,EFT.SkillManager)'
-        'EFT.UI.DragAndDrop.ItemView CreateItemView(EFT.InventoryLogic.Item,EFT.InventoryLogic.ItemContext,ItemRotation,EFT.InventoryLogic.ItemController,EFT.InventoryLogic.IItemOwner,EFT.UI.FilterPanel,EFT.UI.DragAndDrop.IContainerView,System.Boolean,System.Boolean)'
-    )
-    'EFT.UI.DragAndDrop.ModdingSelectableItemView' = @(
-        'EFT.UI.DragAndDrop.ModdingSelectableItemView Create(EFT.InventoryLogic.Item,EFT.InventoryLogic.ModdingSelectableItemContext,ItemRotation,EFT.InventoryLogic.ItemController,EFT.InventoryLogic.IItemOwner,EFT.UI.FilterPanel,EFT.UI.DragAndDrop.IContainerView,EFT.UI.ItemUiContext,EFT.UI.Insurance.InsuranceCompany,System.Boolean)'
     )
     'EFT.UI.ItemContextInteractionsSwitcher' = @(
         'Comfort.Common.IResult IsInteractive(EFT.InventoryLogic.EItemInfoButton)'

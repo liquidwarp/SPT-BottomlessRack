@@ -1,3 +1,4 @@
+using SPTarkov.Server.Core.Helpers.Profile;
 using SPTarkov.Server.Core.Models.Common;
 using SPTarkov.Server.Core.Models.Eft.Common;
 using SPTarkov.Server.Core.Models.Eft.Common.Tables;
@@ -14,7 +15,7 @@ public sealed class SpawnRejected(string message, BackendErrorCodes code = Backe
 public sealed record SpawnBatch(SpawnReceipt Receipt, List<Item> Additions)
 {
     public static SpawnBatch Stage(long sequence, SpawnLine[]? lines, UnlockLedger ledger, GearDefinitions gear,
-        PmcData pmc, MongoId session, Action<List<Item>, PmcData, ItemEventRouterResponse> place)
+        InventoryHelper inventory, PmcData pmc, MongoId session)
     {
         if (sequence < 1 || lines is not { Length: > 0 })
             throw new SpawnRejected("Invalid spawn request.");
@@ -22,7 +23,7 @@ public sealed record SpawnBatch(SpawnReceipt Receipt, List<Item> Additions)
         int total = 0;
         foreach (var line in lines)
         {
-            if (line == null || string.IsNullOrEmpty(line.TemplateId) || !MongoId.IsValidMongoId(line.TemplateId) || line.Quantity <= 0 ||
+            if (line == null || !MongoId.IsValidMongoId(line.TemplateId) || line.Quantity <= 0 ||
                 line.Quantity > int.MaxValue - total)
                 throw new SpawnRejected("Invalid template or spawn quantity.");
             total += line.Quantity;
@@ -56,7 +57,8 @@ public sealed record SpawnBatch(SpawnReceipt Receipt, List<Item> Additions)
             {
                 var tree = gear.Create(line.TemplateId, line.BareWeapon);
                 var expectedCount = additions.Count + tree.Count;
-                place(tree, staged, scratch);
+                inventory.AddItemToStash(session,
+                    new() { ItemWithModsToAdd = tree, FoundInRaid = false, UseSortingTable = false }, staged, scratch);
                 if (scratch.Warnings is { Count: > 0 } || additions.Count != expectedCount)
                     throw new SpawnRejected("Not enough stash space.", BackendErrorCodes.NotEnoughSpace);
                 roots.Add(tree[0].Id.ToString());

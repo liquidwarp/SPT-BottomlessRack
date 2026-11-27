@@ -6,7 +6,6 @@ using SPTarkov.Common.Extensions;
 using SPTarkov.Server.Core.DI.Routing;
 using SPTarkov.Server.Core.Models.Common;
 using SPTarkov.Server.Core.Models.Eft.Common.Request;
-using SPTarkov.Server.Core.Models.Eft.ItemEvent;
 using SPTarkov.Server.Core.Models.Eft.Profile;
 using SPTarkov.Server.Core.Models.Enums;
 
@@ -124,29 +123,17 @@ public sealed class IntegrationTests : ServerFixture
                     return ValueTask.FromResult(output);
                 }));
             var stock = Callbacks(actions, new SpawnRouter(Service));
-            var payload = Json.Deserialize<ItemEventRouterRequest>("""{"data":[{"Action":"ClaimFixture"},{"Action":"DiscardFixture"}]}""")!;
-            await stock.HandleEvents("", payload, Session, default);
+            await Send(stock, new { Action = "ClaimFixture" }, new { Action = "DiscardFixture" });
             Assert.That(Items, Does.Not.Contain(mail));
             Assert.That(UnlockLedger.Read(Profile).Templates, Does.Contain(Optic));
-            var spawn = new ItemEventRouterRequest { Data = [JsonSerializer.SerializeToElement(
-                new { Action = GearProtocol.Action, sequence = 1, lines = new[] { new { templateId = Optic, quantity = 1 } } })] };
-            var results = await Task.WhenAll(Enumerable.Range(0, 2).Select(_ =>
-                Task.Run(async () => await stock.HandleEvents("", spawn, Session, default))));
-            var counts = results.Select(body =>
-            {
-                using var json = JsonDocument.Parse(body);
-                return json.RootElement.GetProperty("data").GetProperty("profileChanges").GetProperty(Session.ToString())
-                    .GetProperty("items").GetProperty("new").GetArrayLength();
-            });
-            Assert.That(counts, Is.EquivalentTo(new[] { 0, 1 }));
+            var spawn = new { Action = GearProtocol.Action, sequence = 1, lines = new[] { new { templateId = Optic, quantity = 1 } } };
+            var results = await Task.WhenAll(Enumerable.Range(0, 2).Select(_ => Task.Run(() => Send(stock, spawn))));
+            Assert.That(results.Select(r => r.ProfileChanges[Session].Items!.NewItems!.Count), Is.EquivalentTo(new[] { 0, 1 }));
             Assert.That(Items.Count(i => i.Template == Optic), Is.EqualTo(1));
 
-            var invalid = new ItemEventRouterRequest { Data = [
-                JsonSerializer.SerializeToElement(new { Action = "DiscardFixture" }),
-                JsonSerializer.SerializeToElement(new { Action = GearProtocol.Action, sequence = 2,
-                    lines = new[] { new { templateId = Rifle, quantity = 1 } } })] };
-            using var refused = JsonDocument.Parse(await stock.HandleEvents("", invalid, Session, default));
-            Assert.That(refused.RootElement.GetProperty("data").GetProperty("warnings")[0].GetProperty("index").GetInt32(), Is.EqualTo(1));
+            var refused = await Send(stock, new { Action = "DiscardFixture" },
+                new { Action = GearProtocol.Action, sequence = 2, lines = new[] { new { templateId = Rifle, quantity = 1 } } });
+            Assert.That(refused.Warnings![0].Index, Is.EqualTo(1));
         }
         finally { new Harmony(MyModInfo.MOD_GUID).UnpatchSelf(); }
     }

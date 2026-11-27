@@ -29,10 +29,11 @@ public static class Discovery
         var pending = new Stack<string>(roots);
         while (pending.TryPop(out var parent))
             foreach (var item in children[parent])
-                if (roots.Add(item.Id.ToString()))
-                {
-                    yield return item.Template;
-                    pending.Push(item.Id.ToString());
-                }
+            {
+                var id = item.Id.ToString();
+                if (!roots.Add(id)) continue;
+                yield return item.Template;
+                pending.Push(id);
+            }
     }
 }

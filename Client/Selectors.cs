@@ -270,14 +270,14 @@ internal static class InstallPatch
     private static async Task Install(DropdownManipulation selector, Slot slot, string template)
     {
         var screen = ModdingScreenPatch.Current;
-        if (screen == null || !screen.isActiveAndEnabled || !ReferenceEquals(Manipulation(screen), selector)) return;
+        bool Current() => screen != null && screen.isActiveAndEnabled && ReferenceEquals(Manipulation(screen), selector);
+        if (!Current()) return;
         var previous = slot.ContainedItem;
         var target = ModdingScreenPatch.ShownItem(screen);
         var outcome = await StashSelection.IssueAndUse(template, GearClient.One, item =>
         {
             var parent = slot.ParentItem;
-            if (!GearClient.Ready || screen == null || !screen.isActiveAndEnabled ||
-                !ReferenceEquals(Manipulation(screen), selector) || ModdingScreenPatch.ShownItem(screen) != target ||
+            if (!GearClient.Ready || !Current() || ModdingScreenPatch.ShownItem(screen) != target ||
                 slot.ContainedItem != previous || parent == null || (parent != target && !parent.IsChildOf(target)) ||
                 !selector.Select(item, slot, out _)) return false;
             screen.WeaponUpdate();
@@ -375,8 +375,8 @@ internal static class ModdingPreviewLabelPatch
     }
 
     internal static bool IsUnlockedBuildPart(SelectableItemContext context, Item item) =>
-        item != null && context is ModdingSelectableItemContext { ModdingSelectionContext: EditBuildScreen } &&
-        GearClient.Ready && GearClient.Unlocked.Contains(item.TemplateId);
+        context is ModdingSelectableItemContext { ModdingSelectionContext: EditBuildScreen } &&
+        GearClient.Ready && GearClient.IsUnlocked(item);
 }
 
 public sealed class SelectorRefresh : MonoBehaviour
@@ -406,5 +406,5 @@ public sealed class SelectorRefresh : MonoBehaviour
         GearClient.Updated -= OnChanged;
     }
     private void OnChanged() => _refresh?.Invoke();
-    private void Poll() => GearClient.Refresh(checkOnly: true);
+    private void Poll() => GearClient.Refresh();
 }

@@ -30,7 +30,7 @@ internal static class SpareMagazines
 
         if (magazine.ReloadMagType is not (Weapon.EReloadMode.ExternalMagazine or Weapon.EReloadMode.ExternalMagazineWithInternalReloadSupport))
             return null;
-        return GearClient.Unlocked.Contains(magazine.StringTemplateId) ? magazine : null;
+        return GearClient.IsUnlocked(magazine) ? magazine : null;
     }
 
     private static async Task SpawnCopies(Weapon weapon, string template)

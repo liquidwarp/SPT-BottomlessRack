@@ -22,7 +22,7 @@ internal static class PresetItems
         var incomplete = new HashSet<string>();
         foreach (var item in entries.Values)
         {
-            if (GearClient.Unlocked.Contains(item.StringTemplateId)) continue;
+            if (GearClient.IsUnlocked(item)) continue;
             for (var entry = item; entry != null && entry != plan; entry = entry.CurrentAddress?.Container.ParentItem)
                 if (entries.ContainsKey(entry.Id)) incomplete.Add(entry.Id);
         }

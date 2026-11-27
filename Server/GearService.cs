@@ -7,7 +7,6 @@ using SPTarkov.Server.Core.Models.Eft.Common;
 using SPTarkov.Server.Core.Models.Eft.Common.Request;
 using SPTarkov.Server.Core.Models.Eft.Common.Tables;
 using SPTarkov.Server.Core.Models.Eft.ItemEvent;
-using SPTarkov.Server.Core.Models.Eft.Match;
 using SPTarkov.Server.Core.Models.Eft.Profile;
 using SPTarkov.Server.Core.Models.Eft.Ragfair;
 using SPTarkov.Server.Core.Models.Eft.Trade;
@@ -166,9 +165,7 @@ public sealed class GearService(ProfileHelper profiles, GearDefinitions gear, In
             if (saves.IsProfileInvalidOrUnloadable(id)) throw new SpawnRejected("Unable to save this profile.");
             var profile = profiles.GetFullProfile(id);
             var ledger = ReadLedger(id, profile);
-            var batch = SpawnBatch.Stage(request.Sequence, request.Lines, ledger, gear, pmc, id,
-                (tree, staged, scratch) => inventory.AddItemToStash(id,
-                    new() { ItemWithModsToAdd = tree, FoundInRaid = false, UseSortingTable = false }, staged, scratch));
+            var batch = SpawnBatch.Stage(request.Sequence, request.Lines, ledger, gear, inventory, pmc, id);
             if (batch.Additions.Count > 0)
             {
                 var saveLock = SaveLock(id);

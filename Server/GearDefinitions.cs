@@ -29,12 +29,15 @@ public sealed class GearDefinitions(TemplateTable templates, GlobalTable globals
     internal bool MatchesFilter(MongoId tpl, MongoId filter) =>
         templates.Items.ContainsKey(tpl) && (tpl == filter || itemHelper.IsOfBaseclass(tpl, filter));
 
-    public bool Eligible(MongoId id) => _eligible.GetOrAdd(id, tpl =>
+    // Static factories keep cache hits allocation-free during the per-item ownership walks.
+    public bool Eligible(MongoId id) => _eligible.GetOrAdd(id, static (tpl, self) => self.IsEligible(tpl), this);
+
+    private bool IsEligible(MongoId tpl) =>
         templates.Items.TryGetValue(tpl, out var item) && item?.Type == "Item" &&
         item.Properties is { QuestItem: not true, Width: > 0, Height: > 0 } &&
-        MatchesFilter(tpl, GearCategories.Families) && !MatchesFilter(tpl, GearCategories.Exclusions));
+        MatchesFilter(tpl, GearCategories.Families) && !MatchesFilter(tpl, GearCategories.Exclusions);
 
-    public RecipePart[] Recipe(MongoId id) => _recipes.GetOrAdd(id, MakeStandaloneRecipe);
+    public RecipePart[] Recipe(MongoId id) => _recipes.GetOrAdd(id, static (tpl, self) => self.MakeStandaloneRecipe(tpl), this);
 
     public bool CanIssue(MongoId id) => Eligible(id) && Recipe(id).Length > 0;
     public bool IsWeapon(MongoId id) => MatchesFilter(id, BaseClasses.WEAPON);

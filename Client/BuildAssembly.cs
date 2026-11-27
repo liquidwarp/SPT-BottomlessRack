@@ -83,7 +83,7 @@ internal static class BuildAssembly
         if (!GearClient.OutOfRaid || !(Plan(__instance) is Weapon plan)) return true;
         if (_assembling) return false;
         var target = Target(__instance) as Weapon;
-        if (target == null && (____acceptableWeaponBodies?.Length > 0 || !GearClient.Unlocked.Contains(plan.TemplateId)))
+        if (target == null && (____acceptableWeaponBodies?.Length > 0 || !GearClient.IsUnlocked(plan)))
             return true;
         if (target != null)
         {
@@ -115,7 +115,7 @@ internal static class BuildAssembly
                     GearClient.Warn("Could not load unlocked gear. Try assembling the preset again.");
                     return;
                 }
-                if (!GearClient.Unlocked.Contains(plan.TemplateId)) return;
+                if (!GearClient.IsUnlocked(plan)) return;
                 // Some EFT versions omit weapons from the body's picker. Prefer a loose stash
                 // weapon before requesting a factory build of the same template.
                 var bodies = new List<Item>();
@@ -158,7 +158,7 @@ internal static class BuildAssembly
             var installed = WeaponAssembler.GetInstalledMods(target);
             var remaining = screen.GetMissingBuildItems(installed);
             foreach (var item in remaining)
-                if (GearClient.Unlocked.Contains(item.TemplateId))
+                if (GearClient.IsUnlocked(item))
                 {
                     GearClient.Warn("EFT could not use the issued parts for this preset. Check your stash.");
                     return;
@@ -180,7 +180,7 @@ internal static class UnlockedWeaponBodyPatch
     private static void Postfix(EditBuildScreen __instance, Item[] ____acceptableWeaponBodies, bool ___RefreshingWeapon)
     {
         if (!___RefreshingWeapon && BuildAssembly.Target(__instance) == null && ____acceptableWeaponBodies?.Length == 0 &&
-            BuildAssembly.Plan(__instance) is Weapon plan && GearClient.Ready && GearClient.Unlocked.Contains(plan.TemplateId))
+            BuildAssembly.Plan(__instance) is Weapon plan && GearClient.Ready && GearClient.IsUnlocked(plan))
             __instance.SetItemReadyToAssembleActive(true);
     }
 }
@@ -196,12 +196,12 @@ internal static class MissingBuildItemsPatch
         var counts = new Dictionary<string, int>();
         foreach (var line in BuildAssembly.Missing(__instance, target))
             if (GearClient.Unlocked.Contains(line.TemplateId)) counts[line.TemplateId] = line.Quantity;
-        if (counts.Count == 0 && !__result.Exists(item => GearClient.Unlocked.Contains(item.TemplateId))) return;
+        if (counts.Count == 0 && !__result.Exists(GearClient.IsUnlocked)) return;
         var missing = new List<Item>(__result.Count);
         bool changed = false;
         foreach (var item in __result)
         {
-            if (GearClient.Unlocked.Contains(item.TemplateId))
+            if (GearClient.IsUnlocked(item))
             {
                 if (!counts.TryGetValue(item.TemplateId, out var count) || count == 0) { changed = true; continue; }
                 counts[item.TemplateId] = count - 1;

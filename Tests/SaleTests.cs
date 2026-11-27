@@ -1,4 +1,3 @@
-using System.Text.Json;
 using HarmonyLib;
 using Liquidwarp.BottomlessRack.Server;
 using NUnit.Framework;
@@ -14,7 +13,6 @@ using SPTarkov.Server.Core.Helpers.Traders;
 using SPTarkov.Server.Core.Models.Common;
 using SPTarkov.Server.Core.Models.Eft.Common.Request;
 using SPTarkov.Server.Core.Models.Eft.Common.Tables;
-using SPTarkov.Server.Core.Models.Eft.ItemEvent;
 using SPTarkov.Server.Core.Models.Eft.Ragfair;
 using SPTarkov.Server.Core.Models.Eft.Trade;
 using SPTarkov.Server.Core.Models.Enums;
@@ -51,13 +49,6 @@ public sealed class SaleTests : ServerFixture
         var assorts = new TraderAssortHelper(TestLog.For<TraderAssortHelper>(), TradersDb, new(), Profiles,
             new(TestLog.For<AssortHelper>(), Localizer), purchases, trader, null!, Cloner);
         return new(TestLog.For<TradeHelper>(), trader, ItemHelper, quests, payments, null!, Localizer, Http, Placement, null!, assorts, purchases, Cloner);
-    }
-
-    private async Task<ItemEventRouterResponse> Send(ItemEventCallbacks stock, params object[] commands)
-    {
-        var request = new ItemEventRouterRequest { Data = commands.Select(cmd => JsonSerializer.SerializeToElement(cmd)).ToList() };
-        using var response = JsonDocument.Parse(await stock.HandleEvents("", request, Session, default));
-        return Json.Deserialize<ItemEventRouterResponse>(response.RootElement.GetProperty("data").GetRawText())!;
     }
 
     private static object Sell(MongoId trader, params Item[] items) => new

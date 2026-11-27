@@ -42,6 +42,6 @@ internal static class InspectDescription
         void Refresh() => MarkUnlocked(labels, template);
         GearClient.Updated += Refresh;
         ui.AddDisposable(() => GearClient.Updated -= Refresh);
-        GearClient.Refresh(checkOnly: true);
+        GearClient.Refresh();
     }
 }

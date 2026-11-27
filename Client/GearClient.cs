@@ -30,6 +30,8 @@ internal static class GearClient
     internal static Task CurrentRead => _loading ?? Task.CompletedTask;
     internal static bool Ready => _revision >= 0 && OutOfRaid;
     internal static bool OutOfRaid => !(Singleton<AbstractGame>.Instantiated && Singleton<AbstractGame>.Instance.InRaid);
+    internal static bool ReadyFor(InventoryController inventory) => Ready && ReferenceEquals(Inventory, inventory);
+    internal static bool IsUnlocked(Item item) => item != null && Unlocked.Contains(item.StringTemplateId);
 
     internal static void Enter(InventoryController inventory)
     {
@@ -49,10 +51,10 @@ internal static class GearClient
         Refresh();
     }
 
-    internal static void Refresh(bool checkOnly = false)
+    internal static void Refresh()
     {
-        if (_session == null || !OutOfRaid || (_loading != null && !_loading.IsCompleted)) return;
-        _loading = RefreshAsync(_session, checkOnly);
+        if (_session == null || !OutOfRaid || !CurrentRead.IsCompleted) return;
+        _loading = RefreshAsync(_session);
     }
 
     // A poll already in flight may have read the profile before the purchase was delivered.
@@ -62,26 +64,22 @@ internal static class GearClient
     {
         await previous;
         if (session != null && ReferenceEquals(session, _session) && OutOfRaid)
-            await RefreshAsync(session, false);
+            await RefreshAsync(session);
     }
 
     internal static async Task<bool> EnsureCatalogue(InventoryController inventory)
     {
         if (!OutOfRaid) return false;
-        if (!Ready || !ReferenceEquals(Inventory, inventory)) Enter(inventory);
-        if (_loading != null) await _loading;
-        return Ready && ReferenceEquals(Inventory, inventory);
+        if (!ReadyFor(inventory)) Enter(inventory);
+        await CurrentRead;
+        return ReadyFor(inventory);
     }
 
-    private static async Task RefreshAsync(IEftSession session, bool checkOnly)
+    // With a cached revision, the server replies with only the revision and receipt until it changes.
+    private static async Task RefreshAsync(IEftSession session)
     {
         try
         {
-            if (checkOnly && _revision >= 0)
-            {
-                var head = await Fetch(GearProtocol.Receipt);
-                if (head.Revision == _revision) return;
-            }
             var data = await Fetch(GearProtocol.Catalogue, _revision);
             if (!ReferenceEquals(session, _session)) return;
             _requests.Resume(data.Receipt.Sequence);
@@ -128,7 +126,7 @@ internal static class GearClient
         var inventory = Inventory;
         try
         {
-            if (_loading != null) await _loading;
+            await CurrentRead;
             if (!ReferenceEquals(session, _session) || !OutOfRaid) return null;
             async Task<string> Send(long sequence, IReadOnlyList<SpawnLine> request)
             {

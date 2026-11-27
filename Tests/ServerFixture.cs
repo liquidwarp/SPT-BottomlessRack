@@ -135,6 +135,13 @@ public abstract class ServerFixture
     protected ItemEventCallbacks Callbacks(params ItemEventRouter[] routers) => new(Http, TestLog.For<ItemEventCallbacks>(),
         TestLog.For<FileLogger>(), Json, Profiles, null!, Outputs, routers, Cloner);
 
+    protected async Task<ItemEventRouterResponse> Send(ItemEventCallbacks stock, params object[] commands)
+    {
+        var request = new ItemEventRouterRequest { Data = commands.Select(cmd => JsonSerializer.SerializeToElement(cmd)).ToList() };
+        using var response = JsonDocument.Parse(await stock.HandleEvents("", request, Session, default));
+        return Json.Deserialize<ItemEventRouterResponse>(response.RootElement.GetProperty("data").GetRawText())!;
+    }
+
     protected static Item NewItem(string tpl, string? parent = null, string? slot = null) =>
         new() { Id = new MongoId(), Template = tpl, ParentId = parent, SlotId = slot };
 

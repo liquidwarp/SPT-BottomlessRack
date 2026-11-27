@@ -31,9 +31,9 @@ public sealed class Mod(GearService service, ISptLogger<Mod> logger) : IOnLoad
     }
 
     // A discovery failure must not interrupt a vanilla action.
-    internal static void Observe(Action action)
+    internal static void Observe(MongoId id)
     {
-        try { action(); }
+        try { Gear.Observe(id); }
         catch (Exception ex) { Log.Error($"Gear discovery failed: {ex}"); }
     }
 
@@ -72,8 +72,7 @@ internal static class LoginPatch
 [HarmonyPatch(typeof(ProfileCallbacks), nameof(ProfileCallbacks.GetProfileData))]
 internal static class ProfilePatch
 {
-    private static void Postfix(MongoId sessionID) =>
-        Mod.Locked(sessionID, () => Mod.Observe(() => Mod.Gear.Observe(sessionID)));
+    private static void Postfix(MongoId sessionID) => Mod.Locked(sessionID, () => Mod.Observe(sessionID));
 }
 
 [HarmonyPatch(typeof(ItemEventCallbacks), nameof(ItemEventCallbacks.HandleEvents))]
@@ -100,7 +99,7 @@ internal static class InventoryActionPatch
         ItemEventRouterResponse output, out int __state, ref ValueTask<ItemEventRouterResponse> __result)
     {
         __state = Positions.GetOrCreateValue(output).Next++;
-        Mod.Observe(() => Mod.Gear.Observe(sessionID));
+        Mod.Observe(sessionID);
         if (!Mod.Gear.RejectSale(url, body, pmcData, output, __state)) return true;
         __result = ValueTask.FromResult(output);
         return false;
@@ -113,7 +112,7 @@ internal static class InventoryActionPatch
     {
         var result = await pending;
         if (result.Warnings is not { Count: > 0 })
-            Mod.Observe(() => Mod.Gear.Observe(id));
+            Mod.Observe(id);
         else if (action == GearProtocol.Action)
             result.Warnings[^1].Index = index;
         return result;

@@ -51,8 +51,7 @@ internal sealed class TraderPurchases
     private static TraderPurchases BuyTab =>
         _current?._catalogueRead != null && _current._screen.TradeMode == ETradeMode.Purchase ? _current : null;
 
-    private static bool Unlocked(Item offered) =>
-        offered != null && GearClient.Ready && GearClient.Unlocked.Contains(offered.TemplateId);
+    private static bool Unlocked(Item offered) => GearClient.Ready && GearClient.IsUnlocked(offered);
 
     private bool WaitingForCatalogue => !_catalogueRead.IsCompleted;
 

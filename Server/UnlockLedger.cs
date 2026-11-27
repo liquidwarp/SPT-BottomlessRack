@@ -42,10 +42,12 @@ public sealed record UnlockLedger
         HashSet<string>? next = null;
         foreach (var tpl in candidates)
         {
-            var known = next ?? Templates;
-            if (known.Contains(tpl.ToString()) || !definitions.Eligible(tpl)) continue;
+            // Eligibility is cached. Check it before formatting the template ID.
+            if (!definitions.Eligible(tpl)) continue;
+            var id = tpl.ToString();
+            if ((next ?? Templates).Contains(id)) continue;
             next ??= new(Templates);
-            next.Add(tpl.ToString());
+            next.Add(id);
             foreach (var part in definitions.Recipe(tpl))
                 if (definitions.Eligible(part.Template)) next.Add(part.Template.ToString());
         }

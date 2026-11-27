@@ -19,11 +19,6 @@ internal static class EquipmentPresets
         AccessTools.FieldRefAccess<EquipmentBuildsScreen, EquipmentBuild>("_currentBuild");
     private static bool _equipping;
 
-    private static bool CatalogueReady(InventoryController inventory) =>
-        GearClient.Ready && ReferenceEquals(GearClient.Inventory, inventory);
-
-    private static bool IsUnlocked(Item item) => GearClient.Unlocked.Contains(item.StringTemplateId);
-
     [HarmonyPatch(typeof(EquipmentBuildsScreen), nameof(EquipmentBuildsScreen.Show),
         typeof(IEftSession), typeof(BackEndInventoryController), typeof(IHealthController), typeof(InventoryEquipment))]
     private static class Open
@@ -39,7 +34,7 @@ internal static class EquipmentPresets
             if (!GearClient.OutOfRaid) return;
             void Refresh()
             {
-                if (__instance == null || !__instance.isActiveAndEnabled || !CatalogueReady(inventoryController)) return;
+                if (__instance == null || !__instance.isActiveAndEnabled || !GearClient.ReadyFor(inventoryController)) return;
                 var build = CurrentBuild(__instance);
                 var context = Context(__instance);
                 if (build == null || build.BuildType == EEquipmentBuildType.Storage || !__instance._equipButton.Interactable ||
@@ -47,7 +42,7 @@ internal static class EquipmentPresets
 
                 foreach (var item in build.Equipment.GetAllItems())
                 {
-                    if (!context._missingItems.ContainsKey(item.Id) || !IsUnlocked(item)) continue;
+                    if (!context._missingItems.ContainsKey(item.Id) || !GearClient.IsUnlocked(item)) continue;
                     var containersSelected = ____equipmentTabs._selectedTab == __instance._containersTab;
                     __instance.SetCurrentBuild(build);
                     if (containersSelected) ____equipmentTabs.SelectionChangedHandler(__instance._containersTab, true);
@@ -67,12 +62,12 @@ internal static class EquipmentPresets
             BackEndInventoryController ____realInventoryController, ref IEnumerable<Item> notFoundItems)
         {
             // SetCurrentBuild has already set the Equip icon and disabled the button on simulation errors.
-            if (____currentBuild.BuildType == EEquipmentBuildType.Storage || !CatalogueReady(____realInventoryController) ||
+            if (____currentBuild.BuildType == EEquipmentBuildType.Storage || !GearClient.ReadyFor(____realInventoryController) ||
                 !__instance._equipButton.Interactable || notFoundItems is ICollection<Item> { Count: 0 }) return;
 
             var remaining = new List<Item>();
             foreach (var item in notFoundItems)
-                if (!IsUnlocked(item)) remaining.Add(item);
+                if (!GearClient.IsUnlocked(item)) remaining.Add(item);
             notFoundItems = remaining;
             if (remaining.Count == 0) __instance._equipBuildIcon.sprite = __instance._canEquip;
         }
@@ -91,7 +86,7 @@ internal static class EquipmentPresets
             __instance.ApplyBuild(____currentBuild);
             return false;
         }
-        if (CatalogueReady(____realInventoryController) && !missing.Exists(IsUnlocked)) return true;
+        if (GearClient.ReadyFor(____realInventoryController) && !missing.Exists(GearClient.IsUnlocked)) return true;
         GearClient.Run(Equip(__instance, ____currentBuild, ____realInventoryController, ___UI.CancellationToken, missing));
         return false;
     }
@@ -130,7 +125,7 @@ internal static class EquipmentPresets
 
             if (!allowPartial)
             {
-                var locked = missing.FindAll(item => !IsUnlocked(item));
+                var locked = missing.FindAll(item => !GearClient.IsUnlocked(item));
                 if (locked.Count > 0)
                 {
                     // Shopping or cancelling should leave no partly assembled gear in the stash.
@@ -156,7 +151,7 @@ internal static class EquipmentPresets
                 {
                     if (!screen.TryApplyBuild(out var remaining, out _)) return;
                     var outstanding = partial ? PresetItems.Supplies(build.Equipment, remaining) : remaining;
-                    if (outstanding.Exists(IsUnlocked))
+                    if (outstanding.Exists(GearClient.IsUnlocked))
                     {
                         GearClient.Warn("EFT could not use the issued gear for this preset. Check your stash.");
                         return;
