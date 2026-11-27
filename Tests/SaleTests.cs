@@ -36,8 +36,21 @@ public sealed class SaleTests : ServerFixture
     private TradeItemEventRouter Trades(TradeHelper? trade = null, MailSendService? mail = null)
     {
         var controller = new TradeController(TestLog.For<TradeController>(), TradersDb, Outputs, trade!, new(),
-            new(TestLog.For<RandomUtil>(), Cloner), ItemHelper, null!, null!, Http, null!, mail!, null!, null!);
+            new(TestLog.For<RandomUtil>(), Cloner), ItemHelper, null!, null!, Http, Localizer, mail!, null!, new() { Fence = null! });
         return new TradeItemEventRouter(new TradeCallbacks(controller));
+    }
+
+    private TradeHelper PaidTrades()
+    {
+        var handbook = new HandbookHelper(TestLog.For<HandbookHelper>(), Templates, null!, Cloner);
+        var trader = new TraderHelper(TestLog.For<TraderHelper>(), Globals, TradersDb, Profiles, handbook, null!, null!, new(), null!, null!);
+        var quests = new QuestHelper(TestLog.For<QuestHelper>(), Templates, new(), null!, null!, Profiles, null!, null!, null!, null!, null!, null!, Cloner);
+        var payments = new PaymentService(TestLog.For<PaymentService>(), TradersDb, Http, handbook, trader, ItemHelper, Placement,
+            Localizer, new PaymentHelper(InventoryConfig), InventoryConfig);
+        var purchases = new TraderPurchasePersisterService(TestLog.For<TraderPurchasePersisterService>(), null!, new(), Profiles, Localizer, null!);
+        var assorts = new TraderAssortHelper(TestLog.For<TraderAssortHelper>(), TradersDb, new(), Profiles,
+            new(TestLog.For<AssortHelper>(), Localizer), purchases, trader, null!, Cloner);
+        return new(TestLog.For<TradeHelper>(), trader, ItemHelper, quests, payments, null!, Localizer, Http, Placement, null!, assorts, purchases, Cloner);
     }
 
     private async Task<ItemEventRouterResponse> Send(ItemEventCallbacks stock, params object[] commands)
@@ -54,6 +67,41 @@ public sealed class SaleTests : ServerFixture
     };
 
     [Test]
+    public async Task FirstPaidPurchaseUnlocksOnlyTheDeliveredGear()
+    {
+        const string rig = "544a5caa4bdc2d1a388b4568";
+        var assort = (TradersDb[Traders.PRAPOR] = Offer(Traders.PRAPOR, rig, Optic)).Assort!;
+        var offer = assort.Items[0];
+        assort.Items.Add(NewItem(Magazine, offer.Id, Templates.Items[rig].Properties!.Grids!.First().Name));
+        assort.BarterScheme[offer.Id] = [[new() { Template = Money.ROUBLES, Count = 250 }]];
+        assort.Items[1].Upd!.StackObjectsCount = 5;
+        Pmc.TradersInfo![Traders.PRAPOR] = new() { SalesSum = 0, LoyaltyLevel = 1, Standing = 0, Unlocked = true };
+        var cash = NewItem(Money.ROUBLES, Inventory.Stash!.Value, "hideout");
+        cash.Location = new ItemLocation { X = 0, Y = 0 };
+        cash.Upd = new() { StackObjectsCount = 1000 };
+        Items.Add(cash);
+        var buy = new { Action = "TradingConfirm", type = "buy_from_trader", tid = Traders.PRAPOR.ToString(),
+            item_id = offer.Id.ToString(), count = 1, scheme_items = new[] { new { id = cash.Id.ToString(), count = 250 } } };
+        var stock = Callbacks(Trades(PaidTrades()));
+
+        // The rig is out of stock for the first attempt. The optic is available throughout.
+        Assert.That((await Send(stock, buy)).Warnings, Is.Not.Empty);
+        Assert.That(cash.Upd.StackObjectsCount, Is.EqualTo(1000));
+        offer.Upd!.StackObjectsCount = 5;
+        Assert.That((await Service.Read(Session, true, default)).Templates, Is.Empty);
+        Assert.That((await Issue(1, (rig, 1))).Warnings, Is.Not.Empty);
+
+        var result = await Send(stock, buy);
+        Assert.That(result.Warnings, Is.Empty);
+        Assert.That(cash.Upd.StackObjectsCount, Is.EqualTo(750));
+        var delivered = result.ProfileChanges[Session].Items!.NewItems!;
+        Assert.That(delivered.Select(i => i.Template.ToString()), Is.EquivalentTo(new[] { rig, Magazine }));
+        Assert.That(UnlockLedger.Read(Profile).Templates, Is.EquivalentTo(new[] { rig, Magazine }));
+        Items.RemoveAll(i => i.Template == rig || i.Template == Magazine);
+        Assert.That((await Service.Read(Session, true, default)).Templates, Is.EquivalentTo(new[] { rig, Magazine }));
+    }
+
+    [Test]
     public async Task AllTradersRefuseMagazinesAndTheirContainersBeforeAnOrdinarySalePays()
     {
         Award(Magazine);
@@ -68,12 +116,7 @@ public sealed class SaleTests : ServerFixture
 
         TradersDb[Traders.PRAPOR] = Offer(Traders.PRAPOR);
         Pmc.TradersInfo![Traders.PRAPOR] = new() { SalesSum = 0, LoyaltyLevel = 1, Standing = 0, Unlocked = true };
-        var handbook = new HandbookHelper(TestLog.For<HandbookHelper>(), Templates, null!, Cloner);
-        var trader = new TraderHelper(TestLog.For<TraderHelper>(), Globals, TradersDb, Profiles, handbook, null!, null!, new(), null!, null!);
-        var quests = new QuestHelper(TestLog.For<QuestHelper>(), Templates, new(), null!, null!, Profiles, null!, null!, null!, null!, null!, null!, Cloner);
-        var payments = new PaymentService(TestLog.For<PaymentService>(), TradersDb, Http, handbook, trader, ItemHelper, Placement, null!, null!, null!);
-        var trade = new TradeHelper(TestLog.For<TradeHelper>(), trader, ItemHelper, quests, payments, null!, null!, Http, Placement, null!, null!, null!, Cloner);
-        var stock = Callbacks(Trades(trade));
+        var stock = Callbacks(Trades(PaidTrades()));
         var initialIds = Items.Select(i => i.Id).ToArray();
         foreach (var buyer in new[] { Traders.PRAPOR, Traders.FENCE, new MongoId() })
             foreach (var blocked in new[] { issued, looted, box })

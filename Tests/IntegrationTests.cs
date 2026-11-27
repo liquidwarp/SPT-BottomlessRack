@@ -36,10 +36,8 @@ public sealed class IntegrationTests : ServerFixture
         Assert.That(same.Templates, Is.Empty);
         Assert.That(same.WeaponBuilds, Is.Empty);
 
-        var trader = new MongoId();
-        TradersDb[trader] = Offer(trader, Rifle);
-        Pmc.TradersInfo![trader] = new() { LoyaltyLevel = 1, Unlocked = true };
-        Items.Add(NewItem(Optic, Inventory.Stash!.Value, "hideout"));
+        var rifle = NewItem(Rifle, Inventory.Stash!.Value, "hideout");
+        Items.AddRange([rifle, NewItem(Optic, rifle.Id, "mod_scope")]);
         var changed = await ReadCatalogue(first.Revision);
         Assert.That(changed.Revision, Is.GreaterThan(first.Revision));
         Assert.That(changed.Templates, Does.Contain(Optic));
@@ -85,24 +83,24 @@ public sealed class IntegrationTests : ServerFixture
     }
 
     [Test]
-    public async Task FenceIsSkippedOnEntryAndRotationButOwnershipOrAnotherTraderUnlocks()
+    public async Task TraderStockAndProgressionCannotAddToAnExistingCatalogue()
     {
         var other = new MongoId();
-        TradersDb[Traders.FENCE] = Offer(Traders.FENCE, Optic, Rifle);
-        TradersDb[other] = Offer(other, Magazine);
+        TradersDb[Traders.FENCE] = Offer(Traders.FENCE, Rifle);
+        TradersDb[other] = Offer(other, Optic);
         Pmc.TradersInfo![other] = new() { LoyaltyLevel = 1, Unlocked = true };
         Pmc.TradersInfo[Traders.FENCE] = new() { LoyaltyLevel = 4, Unlocked = true };
-        Activity.AddActiveProfile(Session, 0);
-        var first = await Service.Read(Session, true, default);
+        // Version 1 saved trader sightings and acquisitions together. Keep this old, unowned unlock.
+        new UnlockLedger { Templates = [Magazine] }.Write(Profile);
+        Profile.SptData = Json.Deserialize<SptProfile>(Json.Serialize(Profile))!.SptData;
+        var first = await ReadCatalogue();
         Assert.That(first.Templates, Is.EqualTo(new[] { Magazine }));
-        Service.Restock(Traders.FENCE);
-        Assert.That(UnlockLedger.Read(Profile).Templates, Does.Not.Contain(Optic));
-        TradersDb[other] = Offer(other, Optic);
-        Service.Restock(other);
-        Assert.That(UnlockLedger.Read(Profile).Templates, Does.Contain(Optic));
-        Items.Add(NewItem(Rifle, Inventory.Stash!.Value, "hideout"));
-        Service.Observe(Session);
-        Assert.That(UnlockLedger.Read(Profile).Templates, Does.Contain(Rifle));
+        TradersDb[other] = Offer(other, Rifle, Optic);
+        Pmc.TradersInfo[other].LoyaltyLevel = 4;
+        Assert.That((await ReadCatalogue(first.Revision)).Revision, Is.EqualTo(first.Revision));
+        Assert.That((await Issue(1, (Rifle, 1))).Warnings, Is.Not.Empty);
+        Items.Add(NewItem(Optic, Inventory.Stash!.Value, "hideout"));
+        Assert.That((await ReadCatalogue()).Templates, Is.EquivalentTo(new[] { Magazine, Optic }));
     }
 
     [Test]

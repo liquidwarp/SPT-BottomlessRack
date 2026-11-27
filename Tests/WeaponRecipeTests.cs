@@ -52,14 +52,16 @@ public sealed class WeaponRecipeTests : ServerFixture
         var receiver = Clone(Rifle, Mount("mod_magazine", true, Magazine));
         var bare = Clone(Rifle);
         var broken = Clone(Rifle, Mount("mod_scope", true, Optic));
-        var vendor = Assort(new MongoId());
+        var trader = new MongoId();
+        var vendor = Assort(trader);
+        Pmc.TradersInfo![trader] = new() { LoyaltyLevel = 4, Unlocked = true };
         var root = Offer(vendor, receiver, 4, ("mod_magazine", Magazine));
         var magazine = vendor.Items.Last();
         vendor.Items.Add(NewItem(Ammo, magazine.Id, "cartridges"));
         vendor.Items.Add(NewItem(Ammo, root.Id, Templates.Items[Rifle].Properties!.Chambers!.First().Name));
         Offer(Assort(Traders.FENCE), broken, 1, ("mod_scope", Optic));
         await LoadGear();
-        // No trader relation. A full read must never grant these offers or leak their recipes.
+        // The player can buy this build, but its recipe only enters the catalogue after acquisition.
         Assert.That((await Service.Read(Session, true, default)).WeaponBuilds, Is.Empty);
         Assert.That((await Issue(1, (receiver, 1))).Warnings, Is.Not.Empty);
         new UnlockLedger { Templates = [receiver.ToString(), bare.ToString(), broken.ToString()] }.Write(Profile);

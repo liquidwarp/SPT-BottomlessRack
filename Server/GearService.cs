@@ -1,9 +1,7 @@
 using System.Collections.Concurrent;
 using HarmonyLib;
-using SPTarkov.Common.Models.Logging;
 using SPTarkov.DI.Annotations;
 using SPTarkov.Server.Core.Helpers.Profile;
-using SPTarkov.Server.Core.Helpers.Traders;
 using SPTarkov.Server.Core.Models.Common;
 using SPTarkov.Server.Core.Models.Eft.Common;
 using SPTarkov.Server.Core.Models.Eft.Common.Request;
@@ -14,16 +12,14 @@ using SPTarkov.Server.Core.Models.Eft.Profile;
 using SPTarkov.Server.Core.Models.Eft.Ragfair;
 using SPTarkov.Server.Core.Models.Eft.Trade;
 using SPTarkov.Server.Core.Models.Enums;
-using SPTarkov.Server.Core.Models.Spt.Tables;
 using SPTarkov.Server.Core.Servers;
-using SPTarkov.Server.Core.Services.Profile;
 using SPTarkov.Server.Core.Utils;
 
 namespace Liquidwarp.BottomlessRack.Server;
 
 [Injectable(InjectionType.Singleton)]
-public sealed class GearService(ProfileHelper profiles, GearDefinitions gear, TradersTable traders, TraderAssortHelper assorts,
-    InventoryHelper inventory, SaveServer saves, HttpResponseUtil http, ProfileActivityService activity, ISptLogger<GearService> log)
+public sealed class GearService(ProfileHelper profiles, GearDefinitions gear, InventoryHelper inventory, SaveServer saves,
+    HttpResponseUtil http)
 {
     private readonly ConcurrentDictionary<MongoId, SemaphoreSlim> _gates = new();
     private readonly ConcurrentDictionary<MongoId, byte> _inRaid = new();
@@ -100,36 +96,13 @@ public sealed class GearService(ProfileHelper profiles, GearDefinitions gear, Tr
         finally { gate.Release(); }
     }
 
-    public void Observe(MongoId id, bool checkTraders = false, MongoId? trader = null)
+    public void Observe(MongoId id)
     {
-        if (InRaid(id) && trader == null) return;
+        if (InRaid(id)) return;
         var profile = profiles.GetFullProfile(id);
         if (profile?.CharacterData?.PmcData is not { Inventory.Items: not null } pmc) return;
         var original = ReadLedger(id, profile);
-        var ledger = trader.HasValue ? original : original.Discover(Discovery.Owned(pmc.Inventory), gear);
-        if (checkTraders)
-        {
-            foreach (var pair in traders)
-                if ((!trader.HasValue || trader == pair.Key) && Discovery.Accessible(pair.Key, pair.Value, pmc.TradersInfo))
-                {
-                    try { ledger = ledger.Discover(Discovery.Offered(assorts.GetAssort(id, pair.Key, false)), gear); }
-                    catch (Exception ex) { log.Warning($"Unable to read gear offers from trader {pair.Key}: {ex.Message}"); }
-                }
-        }
-        StoreLedger(id, profile, original, ledger);
-    }
-
-    public void Restock(MongoId trader)
-    {
-        if (trader == Traders.FENCE) return;
-        foreach (var active in activity.GetActiveProfileIdsWithinMinutes(5))
-        {
-            MongoId id = active;
-            var gate = Gate(id);
-            gate.Wait();
-            try { Observe(id, true, trader); }
-            finally { gate.Release(); }
-        }
+        StoreLedger(id, profile, original, original.Discover(Discovery.Owned(pmc.Inventory), gear));
     }
 
     public async Task FinishRaid(MongoId id, ExitStatus? result, MongoId[] carried)
@@ -143,7 +116,7 @@ public sealed class GearService(ProfileHelper profiles, GearDefinitions gear, Tr
             var next = previous.Discover(carried, gear);
             StoreLedger(id, profile, previous, next);
         }
-        Observe(id, true);
+        Observe(id);
         if (ReadLedger(id, profile).Templates.Count != previous.Templates.Count)
             await saves.SaveProfileAsync(id);
     }
@@ -159,7 +132,7 @@ public sealed class GearService(ProfileHelper profiles, GearDefinitions gear, Tr
         {
             if (_pendingSaves.ContainsKey(id)) await SaveGrant(id);
             // An open selector also notices direct stash grants made outside the inventory queue.
-            Observe(id, checkTraders: reconcile);
+            Observe(id);
             var profile = profiles.GetFullProfile(id);
             var state = ReadLedger(id, profile);
             if (reconcile && !knownRevision.HasValue)

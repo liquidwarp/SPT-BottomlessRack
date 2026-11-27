@@ -6,11 +6,9 @@ using SPTarkov.Server.Core.Callbacks;
 using SPTarkov.Server.Core.Controllers;
 using SPTarkov.Server.Core.DI;
 using SPTarkov.Server.Core.DI.Routing;
-using SPTarkov.Server.Core.Helpers.Traders;
 using SPTarkov.Server.Core.Models.Common;
 using SPTarkov.Server.Core.Models.Eft.Common;
 using SPTarkov.Server.Core.Models.Eft.Common.Request;
-using SPTarkov.Server.Core.Models.Eft.Common.Tables;
 using SPTarkov.Server.Core.Models.Eft.ItemEvent;
 using SPTarkov.Server.Core.Models.Eft.Match;
 using SPTarkov.Server.Core.Models.Enums;
@@ -32,7 +30,7 @@ public sealed class Mod(GearService service, ISptLogger<Mod> logger) : IOnLoad
         return Task.CompletedTask;
     }
 
-    // A malformed third-party assort or a future catalogue schema must not interrupt a vanilla action.
+    // A discovery failure must not interrupt a vanilla action.
     internal static void Observe(Action action)
     {
         try { action(); }
@@ -75,13 +73,7 @@ internal static class LoginPatch
 internal static class ProfilePatch
 {
     private static void Postfix(MongoId sessionID) =>
-        Mod.Locked(sessionID, () => Mod.Observe(() => Mod.Gear.Observe(sessionID, true)));
-}
-
-[HarmonyPatch(typeof(TraderAssortHelper), nameof(TraderAssortHelper.ResetExpiredTrader))]
-internal static class RestockPatch
-{
-    private static void Postfix(Trader trader) => Mod.Observe(() => Mod.Gear.Restock(trader.Base.Id));
+        Mod.Locked(sessionID, () => Mod.Observe(() => Mod.Gear.Observe(sessionID)));
 }
 
 [HarmonyPatch(typeof(ItemEventCallbacks), nameof(ItemEventCallbacks.HandleEvents))]
@@ -121,7 +113,7 @@ internal static class InventoryActionPatch
     {
         var result = await pending;
         if (result.Warnings is not { Count: > 0 })
-            Mod.Observe(() => Mod.Gear.Observe(id, action.StartsWith("Quest", StringComparison.Ordinal) || action == "TradingConfirm"));
+            Mod.Observe(() => Mod.Gear.Observe(id));
         else if (action == GearProtocol.Action)
             result.Warnings[^1].Index = index;
         return result;

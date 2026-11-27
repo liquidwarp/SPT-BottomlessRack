@@ -2,7 +2,7 @@
 
 *A seamlessly integrated gear spawner with unlock-based progression*
 
-Permanently unlock equipment and attachments you extract with, collect in your stash, or gain access to through a trader.
+Permanently unlock equipment and attachments the first time you acquire them. Buy a piece of gear, extract with it, or claim it from mail, and you can make free copies even after you lose the original.
 
 Use EFT’s equipment picker, modding, builds and presets views to seamlessly create free copies of unlocked equipment.
 
@@ -14,7 +14,7 @@ Use EFT’s equipment picker, modding, builds and presets views to seamlessly cr
 | Edit Build | Assemble a weapon preset to use owned parts and automatically create missing unlocked parts. An unlocked weapon body can also be supplied. EFT offers to buy any remaining locked parts as usual. |
 | Weapon context menu | Right-click an owned weapon and choose **Spawn spare magazines** to add empty copies of its fitted magazine to your main stash. A 1×1 magazine gives **3** spares, a 1×2 or 1×3 gives **2**, and every other shape gives **1**. A notification confirms how many arrived. |
 | Equipment presets | Equip reuses matching builds, down to the attachments, plates, and packed contents. Other builds stay intact. Missing unlocked gear is supplied automatically, and EFT offers to buy the remaining shortages. |
-| Trader Buy tab (except Fence) | If you can get the offered item for free from your inventory, the trader marks it **Unlocked** and you can’t buy or barter for it. Hover to see how to equip it. You can use unlocked gear to pay for other barter trades though. |
+| Trader Buy tab (except Fence) | Pay the usual price or barter cost for gear you haven’t unlocked. Once you can make a free copy, the offer shows **Unlocked** and the trader disables the deal. You can still use unlocked gear as payment for other items. |
 | PMC trader sales and flea listings | Traders, including Fence, decline gear in the mod’s categories. You also can’t list it on the flea. Take covered gear out of a container before selling the container. Ammo, medicine and barter goods follow the usual sale rules. |
 | Post-raid Scav Sell All | Sell your remaining Scav loadout to Fence at the normal price. Gear you transfer to your PMC follows the PMC sale rules. |
 
@@ -26,7 +26,7 @@ In Edit Build, **Unlocked** marks parts that Assemble can supply for free. Choo�
 
 Modding and Edit Build are available from the stash before you construct the Workbench, including the Edit Build button on the bottom menu.
 
-A successful PMC or Scav extraction counts, including a Run Through. The catalogue also picks up equipment already in storage, purchases, collected crafts, and claimed mail. Fence purchases count when received, while Fence’s rotating stock is excluded from trader discovery. A customized weapon unlocks the weapon, its factory parts, and the parts you actually recovered.
+A successful PMC or Scav extraction counts, including a Run Through. The catalogue also picks up gear you already own, collected crafts, and purchases from Fence or the flea. A customized weapon unlocks its standard factory parts alongside the parts you actually recovered.
 
 Each spawn request needs room in the main stash for the whole batch.
 

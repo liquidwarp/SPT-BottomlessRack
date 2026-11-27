@@ -1,6 +1,5 @@
 using SPTarkov.Server.Core.Models.Common;
 using SPTarkov.Server.Core.Models.Eft.Common.Tables;
-using SPTarkov.Server.Core.Models.Enums;
 using SPTarkov.Server.Core.Models.Enums.Hideout;
 
 namespace Liquidwarp.BottomlessRack.Server;
@@ -22,22 +21,6 @@ public static class Discovery
                     roots.Add(root.ToString());
         }
         return Descendants(inventory.Items, roots);
-    }
-
-    public static bool Accessible(MongoId id, Trader trader, Dictionary<MongoId, TraderInfo>? relations) =>
-        id != Traders.FENCE && trader.Assort?.Items?.Count > 0 && relations != null &&
-        relations.TryGetValue(id, out var info) && info.Disabled != true && (info.Unlocked ?? trader.Base.UnlockedByDefault) == true;
-
-    public static IEnumerable<MongoId> Offered(TraderAssort assort)
-    {
-        var roots = new HashSet<string>();
-        foreach (var item in assort.Items)
-            if (item.ParentId == "hideout" && assort.BarterScheme?.ContainsKey(item.Id) == true)
-            {
-                roots.Add(item.Id.ToString());
-                yield return item.Template;
-            }
-        foreach (var id in Descendants(assort.Items, roots)) yield return id;
     }
 
     internal static IEnumerable<MongoId> Descendants(List<Item> items, HashSet<string> roots)

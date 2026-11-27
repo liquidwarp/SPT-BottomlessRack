@@ -1,4 +1,5 @@
 using System.Threading.Tasks;
+using Comfort.Common;
 using EFT.InventoryLogic;
 using EFT.Trading;
 using EFT.UI;
@@ -17,7 +18,7 @@ internal sealed class TraderPurchases
     private readonly TraderDealScreen _screen;
     private readonly Trader _trader;
     private readonly ItemUiContext _ui;
-    private Task _firstRead;
+    private Task _catalogueRead;
     private SelectorRefresh _watcher;
     private Task _pendingExchange;
 
@@ -42,27 +43,55 @@ internal sealed class TraderPurchases
         var shop = _current;
         if (shop == null || shop._trader.Id == FenceId) return;
         GearClient.Enter(stashController);
-        shop._firstRead = GearClient.CurrentRead;
         shop._watcher = SelectorRefresh.Watch(shop._screen.gameObject, shop.Refresh);
         shop._screen.OnTradingModeChanged += shop.ModeChanged;
-        shop.Refresh();
-        if (shop.WaitingForCatalogue) GearClient.Run(shop.FinishFirstRead());
+        shop.WatchRead(GearClient.CurrentRead);
     }
 
     private static TraderPurchases BuyTab =>
-        _current?._firstRead != null && _current._screen.TradeMode == ETradeMode.Purchase ? _current : null;
+        _current?._catalogueRead != null && _current._screen.TradeMode == ETradeMode.Purchase ? _current : null;
 
     private static bool Unlocked(Item offered) =>
         offered != null && GearClient.Ready && GearClient.Unlocked.Contains(offered.TemplateId);
 
-    private bool WaitingForCatalogue => !GearClient.Ready && !_firstRead.IsCompleted;
+    private bool WaitingForCatalogue => !_catalogueRead.IsCompleted;
 
-    private async Task FinishFirstRead()
+    private void WatchRead(Task read)
     {
-        await _firstRead;
-        // A successful read raises Updated. A failed first read must also release Deal.
-        if (_current == this && !GearClient.Ready && _trader.CurrentAssortment != null)
+        _catalogueRead = read;
+        Refresh();
+        if (!read.IsCompleted) GearClient.Run(FinishRead(read));
+    }
+
+    private async Task FinishRead(Task read)
+    {
+        await read;
+        if (_current == this && _trader.CurrentAssortment != null)
             _screen.UpdateDealButton();
+    }
+
+    [HarmonyPatch(typeof(Assortment), nameof(Assortment.Purchase))]
+    private static class Purchase
+    {
+        // EFT can clear SelectedItem as soon as the last unit in stock is ordered.
+        private static void Prefix(Assortment __instance, out bool __state) =>
+            __state = GearSales.ContainsGear(__instance.SelectedItem);
+
+        private static void Postfix(bool __state, ref Task<IResult> __result)
+        {
+            if (__state) __result = AfterPurchase(__result);
+        }
+
+        private static async Task<IResult> AfterPurchase(Task<IResult> purchase)
+        {
+            var result = await purchase;
+            if (result.Succeed)
+            {
+                var read = GearClient.RefreshAfterPurchase();
+                if (_current?._catalogueRead != null) _current.WatchRead(read);
+            }
+            return result;
+        }
     }
 
     private void Close()
@@ -190,7 +219,7 @@ internal sealed class TraderPurchases
     private bool StillSelected(Assortment assortment, Item item, int quantity) =>
         BuyTab == this && ReferenceEquals(assortment, _trader.CurrentAssortment) &&
         item != null && ReferenceEquals(item, assortment.SelectedItem) && quantity == assortment.CurrentQuantity &&
-        !assortment.TransactionInProgress && !Unlocked(item);
+        !assortment.TransactionInProgress && !WaitingForCatalogue && !Unlocked(item);
 
     private async Task PurchaseWithExchange(Assortment assortment, AutoExchange exchange, AutoExchange.AutoExchangeData quote)
     {

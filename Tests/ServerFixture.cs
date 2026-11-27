@@ -5,9 +5,6 @@ using NUnit.Framework;
 using SPTarkov.Common.Models.Logging;
 using SPTarkov.Server.Core.Helpers.Items;
 using SPTarkov.Server.Core.Helpers.Profile;
-using SPTarkov.Server.Core.Helpers.Traders;
-using SPTarkov.Server.Core.Services.Commerce;
-using SPTarkov.Server.Core.Services.Profile;
 using SPTarkov.Server.Core.Callbacks;
 using SPTarkov.Server.Core.Routers;
 using SPTarkov.Server.Core.DI.Routing;
@@ -62,13 +59,14 @@ public abstract class ServerFixture
     protected ProfileHelper Profiles = null!;
     protected EventOutputHolder Outputs = null!;
     protected ItemHelper ItemHelper = null!;
-    protected ProfileActivityService Activity = null!;
     protected PmcData Pmc => Profile.CharacterData!.PmcData!;
     protected BotBaseInventory Inventory => Pmc.Inventory!;
     protected List<Item> Items => Inventory.Items!;
     private readonly string _originalDirectory = Environment.CurrentDirectory;
     private string _testDirectory = null!;
     private CoreConfig _core = null!;
+    protected InventoryConfig InventoryConfig = null!;
+    protected ServerLocalisationService Localizer = null!;
     protected InventoryHelper Placement = null!;
     protected HttpResponseUtil Http = null!;
     protected readonly ICloner Cloner = new SPTarkov.Server.Core.Utils.Cloners.FastCloner();
@@ -90,14 +88,14 @@ public abstract class ServerFixture
             DefaultEquipmentPresets = [], Achievements = [], CustomAchievements = [], LocationServices = null! };
         Globals = Json.DeserializeFromFile<GlobalTable>(Path.Combine(data, "database/globals.json"))!;
         _core = Json.DeserializeFromFile<CoreConfig>(Path.Combine(data, "configs/core.json"))!;
+        InventoryConfig = Json.DeserializeFromFile<InventoryConfig>(Path.Combine(data, "configs/inventory.json"))!;
         var localeConfig = Json.DeserializeFromFile<LocaleConfig>(Path.Combine(data, "configs/locale.json"))!;
         var locale = new LocaleService(TestLog.For<LocaleService>(), null!, localeConfig);
-        var localizer = new ServerLocalisationService(TestLog.For<ServerLocalisationService>(), null!, locale, Json, new());
-        var bases = new ItemBaseClassService(TestLog.For<ItemBaseClassService>(), Templates, localizer);
+        Localizer = new ServerLocalisationService(TestLog.For<ServerLocalisationService>(), null!, locale, Json, new());
+        var bases = new ItemBaseClassService(TestLog.For<ItemBaseClassService>(), Templates, Localizer);
         bases.HydrateItemBaseClassCache();
-        ItemHelper = new(TestLog.For<ItemHelper>(), Templates, null!, null!, bases, null!, localizer, locale, Cloner);
-        Http = new(Json, localizer);
-        Placement = new(TestLog.For<InventoryHelper>(), Http, null!, null!, ItemHelper, localizer, null!, Cloner);
+        ItemHelper = new(TestLog.For<ItemHelper>(), Templates, null!, null!, bases, null!, Localizer, locale, Cloner);
+        Http = new(Json, Localizer);
     }
 
     [OneTimeTearDown]
@@ -120,9 +118,9 @@ public abstract class ServerFixture
         Saves = new(new(), [], Json, new(null!), null!, null!, TestLog.For<SaveServer>(), _core);
         Saves.AddProfile(Profile);
         Profiles = new(TestLog.For<ProfileHelper>(), Templates, Globals, Cloner, Saves, null!, null!, null!, null!);
+        Placement = new(TestLog.For<InventoryHelper>(), Http, null!, Profiles, ItemHelper, Localizer, InventoryConfig, Cloner);
         Outputs = new(Profiles, new(), Cloner);
         TradersDb = new();
-        Activity = new(new());
         await LoadGear();
     }
 
@@ -130,10 +128,7 @@ public abstract class ServerFixture
     {
         Gear = new(Templates, Globals, TradersDb, ItemHelper);
         await Gear.OnLoadAsync();
-        var purchases = new TraderPurchasePersisterService(TestLog.For<TraderPurchasePersisterService>(), null!, new(), Profiles, null!, null!);
-        var assorts = new TraderAssortHelper(TestLog.For<TraderAssortHelper>(), TradersDb, new(), Profiles,
-            new(TestLog.For<AssortHelper>(), null!), purchases, null!, null!, Cloner);
-        Service = new(Profiles, Gear, TradersDb, assorts, Placement, Saves, Http, Activity, TestLog.For<GearService>());
+        Service = new(Profiles, Gear, Placement, Saves, Http);
         return Gear;
     }
 

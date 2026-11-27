@@ -2,9 +2,7 @@ using System.Text.Json;
 using Liquidwarp.BottomlessRack.Server;
 using NUnit.Framework;
 using SPTarkov.Common.Extensions;
-using SPTarkov.Server.Core.Helpers.Traders;
 using SPTarkov.Server.Core.Models.Common;
-using SPTarkov.Server.Core.Models.Eft.Common.Tables;
 using SPTarkov.Server.Core.Models.Eft.Profile;
 using SPTarkov.Server.Core.Models.Enums;
 using SPTarkov.Server.Core.Models.Enums.Hideout;
@@ -188,36 +186,6 @@ public sealed class ProgressionTests : ServerFixture
         Assert.That(ledger.Templates.Contains(Optic), Is.EqualTo(earned));
         Assert.That(ledger.Templates.Contains(Magazine), Is.EqualTo(outcome != ExitStatus.TRANSIT));
         Assert.That(Service.InRaid(Session), Is.EqualTo(outcome == ExitStatus.TRANSIT));
-    }
-
-    [Test]
-    public void AssortsRespectTraderAccessLoyaltyQuestAndOutputTree()
-    {
-        var id = new MongoId();
-        var root = NewItem(Magazine, "hideout", "hideout");
-        var child = NewItem(Optic, root.Id, "mod_scope");
-        var trader = new Trader { Base = new() { UnlockedByDefault = true }, Dialogue = [], QuestAssort = [],
-            Assort = new() { Items = [root, child], BarterScheme = new() { [root.Id] = [[new() { Template = Rifle }]] },
-                LoyalLevelItems = new() { [root.Id] = 2 } } };
-        var relations = Pmc.TradersInfo!;
-        relations[id] = new() { Unlocked = true, LoyaltyLevel = 1 };
-        relations[Traders.FENCE] = relations[id];
-        Assert.That(Discovery.Accessible(Traders.FENCE, trader, relations), Is.False);
-        Assert.That(Discovery.Accessible(id, trader, relations), Is.True);
-        relations[id].Disabled = true;
-        Assert.That(Discovery.Accessible(id, trader, relations), Is.False);
-        relations[id].Disabled = false;
-        relations[id].Unlocked = false;
-        Assert.That(Discovery.Accessible(id, trader, relations), Is.False);
-        var helper = new AssortHelper(TestLog.For<AssortHelper>(), null!);
-        var locked = helper.StripLockedLoyaltyAssort(Pmc, id, Json.Deserialize<TraderAssort>(Json.Serialize(trader.Assort))!);
-        Assert.That(Discovery.Offered(locked), Is.Empty);
-        Assert.That(Discovery.Offered(trader.Assort), Is.EquivalentTo(new MongoId[] { Magazine, Optic }));
-        var gates = new Dictionary<string, Dictionary<MongoId, MongoId>>
-            { ["started"] = [], ["success"] = new() { [root.Id] = new MongoId() }, ["fail"] = [] };
-        Pmc.Quests = [];
-        var questLocked = helper.StripLockedQuestAssort(Pmc, id, trader.Assort, gates);
-        Assert.That(Discovery.Offered(questLocked), Is.Empty);
     }
 
     [Test]

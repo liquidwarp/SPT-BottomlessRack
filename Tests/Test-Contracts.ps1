@@ -72,7 +72,10 @@ $expectedMethods = [ordered]@{
         'System.Void SetPrice(System.Nullable`1<EFT.Trading.Trader/ItemPrice>)'
         'System.Void ShowTooltip()'
     )
-    'EFT.Trading.Assortment' = @('System.Void SelectItem(EFT.InventoryLogic.Item)')
+    'EFT.Trading.Assortment' = @(
+        'System.Void SelectItem(EFT.InventoryLogic.Item)'
+        'System.Threading.Tasks.Task`1<Comfort.Common.IResult> Purchase()'
+    )
     'EFT.UI.WeaponModding.WeaponModdingScreen' = @(
         'System.Void Show(EFT.InventoryLogic.Item,EFT.InventoryLogic.InventoryController,EFT.InventoryLogic.CompoundItem[])'
     )
@@ -259,6 +262,15 @@ if ($ClientAssembly) {
         $plugin.Dispose()
     }
 
+    function New-SaleTemplate([string]$id, [EFT.InventoryLogic.ItemTemplate]$parent) {
+        $tpl = [Runtime.CompilerServices.RuntimeHelpers]::GetUninitializedObject([EFT.InventoryLogic.ItemTemplate])
+        $tpl._id = [EFT.MongoID]$id
+        $tpl._type = [EFT.InventoryLogic.NodeType]::Item
+        $tpl.Width = $tpl.Height = 1
+        $tpl.Parent = $parent
+        return $tpl
+    }
+
     # Edit Build can show two distinct EFT items for the picker entry and the part fitted to the plan.
     $template = [EFT.InventoryLogic.ModTemplate]::new()
     $template._id = [EFT.MongoID]'000000000000000000000011'
@@ -328,6 +340,51 @@ public static class CatalogueHttpFixture
             $requests[1][0] -ne $requests[0][0] -or ($requests[1][1] | ConvertFrom-Json).knownRevision -ne 2) {
             throw 'Expected a bodyless catalogue read followed by a read with the cached revision.'
         }
+        Add-Type -ReferencedAssemblies ([Comfort.Common.IResult].Assembly.Location) -TypeDefinition @'
+public static class PurchaseFixture
+{
+    public static System.Threading.Tasks.Task<Comfort.Common.IResult> Reply;
+    public static bool Respond(ref System.Threading.Tasks.Task<Comfort.Common.IResult> __result)
+    {
+        __result = Reply;
+        return false;
+    }
+}
+'@
+        $stub = [HarmonyLib.HarmonyMethod]::new([PurchaseFixture].GetMethod('Respond'))
+        $stub.priority = [HarmonyLib.Priority]::Last
+        $null = $harmony.Patch([EFT.Trading.Assortment].GetMethod('Purchase'), $stub)
+        $shopAssort = [Runtime.CompilerServices.RuntimeHelpers]::GetUninitializedObject([EFT.Trading.Assortment])
+        $magazine = New-SaleTemplate '564ca99c4bdc2d16268b4589' (New-SaleTemplate '5448bc234bdc2d3c308b4569' $null)
+        $purchase = [EFT.InventoryLogic.Item]::new('000000000000000000000056', $magazine)
+        $shopAssort._selectedItem = $purchase
+        $denied = [Comfort.Common.FailedResult]::new('Sold out', 0)
+        [PurchaseFixture]::Reply = [Threading.Tasks.Task]::FromResult[Comfort.Common.IResult]($denied)
+        if (![object]::ReferenceEquals($shopAssort.Purchase().GetAwaiter().GetResult(), $denied) -or $requests.Count -ne 2) {
+            throw 'A rejected purchase changed its result or refreshed the catalogue.'
+        }
+        $full.revision = 3
+        $full.templates += $purchase.StringTemplateId
+        [CatalogueHttpFixture]::Reply = @{ data = $full } | ConvertTo-Json -Depth 8 -Compress
+        $poll = [Threading.Tasks.TaskCompletionSource[bool]]::new()
+        $gear.GetField('_loading', $flags).SetValue($null, $poll.Task)
+        $payment = [Threading.Tasks.TaskCompletionSource[Comfort.Common.IResult]]::new()
+        [PurchaseFixture]::Reply = $payment.Task
+        $deal = $shopAssort.Purchase()
+        $shopAssort._selectedItem = $null
+        if ($deal.IsCompleted -or $requests.Count -ne 2) { throw 'An unconfirmed purchase refreshed the catalogue.' }
+        $payment.SetResult([Comfort.Common.SuccessfulResult]::New)
+        if (!$deal.GetAwaiter().GetResult().Succeed) { throw 'A successful purchase lost its result.' }
+        $afterBuy = $gear.GetProperty('CurrentRead', $flags).GetValue($null)
+        if ($afterBuy.IsCompleted -or $requests.Count -ne 2 -or $unlocks.Contains($purchase.StringTemplateId)) {
+            throw 'A purchase used the catalogue from before delivery.'
+        }
+        $poll.SetResult($true)
+        $null = $afterBuy.GetAwaiter().GetResult()
+        if ($requests.Count -ne 3 -or ($requests[2][1] | ConvertFrom-Json).knownRevision -ne 2 -or !$unlocks.Contains($purchase.StringTemplateId)) {
+            throw 'The first purchase did not refresh the catalogue after the earlier poll.'
+        }
+        Write-Output 'PASS  A gear purchase refreshes the catalogue after any earlier poll finishes.'
         $backend._session = $null
         $menu.InventoryController = $menuController
         $revision.SetValue($null, 1)
@@ -472,7 +529,7 @@ public static class CatalogueHttpFixture
     $read = [Threading.Tasks.TaskCompletionSource[bool]]::new()
     $shopType.GetField('_screen', $privateInstance).SetValue($shop, $screen)
     $shopType.GetField('_trader', $privateInstance).SetValue($shop, $trader)
-    $shopType.GetField('_firstRead', $privateInstance).SetValue($shop, $read.Task)
+    $shopType.GetField('_catalogueRead', $privateInstance).SetValue($shop, $read.Task)
     $marked = $shopType.GetMethod('Marked', $flags)
     $select = $client.GetType("$namespace.TraderPurchases+Select").GetMethod('Prefix', $flags)
     $validate = $client.GetType("$namespace.TraderPurchases+Validate").GetMethod('Prefix', $flags)
@@ -487,9 +544,15 @@ public static class CatalogueHttpFixture
         $assort._selectedItem = $medkit
         $revision.SetValue($null, -1)
         if (& $canDeal) { throw 'Deal accepted a purchase during the first catalogue read.' }
+        $revision.SetValue($null, 1)
+        if (& $canDeal) { throw 'Deal accepted a second purchase while the catalogue was refreshing after a purchase.' }
+        $revision.SetValue($null, -1)
         $read.SetResult($false)
         if (-not (& $canDeal)) { throw 'A failed first read disabled a fresh priced purchase.' }
         $revision.SetValue($null, 1)
+        $assort._selectedItem = $pickerItem
+        $viewItem.SetValue($stockView, $pickerItem)
+        if ($marked.Invoke($null, @($stockView, $assort)) -or !(& $canDeal)) { throw 'An unowned offer was blocked before its first purchase.' }
         $null = $unlocks.Add($pickerItem.StringTemplateId)
         $assort._schemes = [Collections.Generic.Dictionary[string,EFT.BarterScheme]]::new()
         # Two offers for the same earned template, then the reverse barter.
@@ -542,14 +605,6 @@ public static class CatalogueHttpFixture
     Write-Output 'PASS  Trader costs, selection and Deal follow the offered template for cash and both barter directions.'
     Write-Output 'PASS  Catalogue loading, a stale exchange quote, the stash and Sell use the intended purchase rules.'
 
-    function New-SaleTemplate([string]$id, [EFT.InventoryLogic.ItemTemplate]$parent) {
-        $tpl = [Runtime.CompilerServices.RuntimeHelpers]::GetUninitializedObject([EFT.InventoryLogic.ItemTemplate])
-        $tpl._id = [EFT.MongoID]$id
-        $tpl._type = [EFT.InventoryLogic.NodeType]::Item
-        $tpl.Width = $tpl.Height = 1
-        $tpl.Parent = $parent
-        return $tpl
-    }
     $family = New-SaleTemplate '5448fe124bdc2da5018b4567' $null
     $partTemplate = New-SaleTemplate '000000000000000000000061' $family
     $part = [EFT.InventoryLogic.Item]::new('000000000000000000000062', $partTemplate)

@@ -55,6 +55,16 @@ internal static class GearClient
         _loading = RefreshAsync(_session, checkOnly);
     }
 
+    // A poll already in flight may have read the profile before the purchase was delivered.
+    internal static Task RefreshAfterPurchase() => _loading = ReadAfterPurchase(_session, CurrentRead);
+
+    private static async Task ReadAfterPurchase(IEftSession session, Task previous)
+    {
+        await previous;
+        if (session != null && ReferenceEquals(session, _session) && OutOfRaid)
+            await RefreshAsync(session, false);
+    }
+
     internal static async Task<bool> EnsureCatalogue(InventoryController inventory)
     {
         if (!OutOfRaid) return false;

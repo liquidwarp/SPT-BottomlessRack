@@ -29,7 +29,7 @@ internal static class GearSales
         return new(included);
     }
 
-    private static bool ContainsGear(Item item)
+    internal static bool ContainsGear(Item item)
     {
         if (item == null) return false;
         if (CoversTemplate(item.Template)) return true;
