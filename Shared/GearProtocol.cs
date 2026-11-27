@@ -15,6 +15,20 @@ public static class GearProtocol
     public const string Receipt = "/bottomlessrack/receipt";
     public const string Action = "BottomlessRackSpawn";
 
+    // Both sides use one line per template, sorted by template ID.
+    public static bool SameRequest(IReadOnlyList<SpawnLine> requested, SpawnLine[] recorded)
+    {
+        if (requested.Count != recorded.Length) return false;
+        for (var i = 0; i < recorded.Length; i++)
+        {
+            var line = requested[i];
+            var previous = recorded[i];
+            if (line.TemplateId != previous.TemplateId || line.Quantity != previous.Quantity ||
+                line.BareWeapon != previous.BareWeapon) return false;
+        }
+        return true;
+    }
+
     // EFT simulates missing items as empty bodies. Supply the same bodies and loose shortages
     // together so assembly never has to strip factory furniture from a new weapon.
     public static List<SpawnLine> PresetSupplies(IEnumerable<(string TemplateId, int Quantity, bool Weapon)> missing,

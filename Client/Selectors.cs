@@ -18,9 +18,9 @@ namespace Liquidwarp.BottomlessRack.Client;
 internal static class PreviewRows
 {
     private static readonly Dictionary<string, Item> ByTemplate = new Dictionary<string, Item>();
-    private static readonly HashSet<Item> Previews = new HashSet<Item>();
-    internal static void Reset() { ByTemplate.Clear(); Previews.Clear(); }
-    internal static bool IsPreview(Item item) => item != null && Previews.Contains(item);
+    internal static void Reset() => ByTemplate.Clear();
+    internal static bool IsPreview(Item item) =>
+        item != null && ByTemplate.TryGetValue(item.StringTemplateId, out var preview) && ReferenceEquals(item, preview);
 
     private static Item Get(string id)
     {
@@ -35,7 +35,6 @@ internal static class PreviewRows
                     : factory.CreateAndFillItem(id);
                 var owner = new ItemController(item, factory.NextId, "Unlocked gear", false, EOwnerType.HideoutProduction);
                 item.CurrentAddress = owner.CreateItemAddress();
-                Previews.Add(item);
             }
             catch (Exception ex)
             {
@@ -247,13 +246,6 @@ internal static class BuildRowsPatch
     }
 }
 
-[HarmonyPatch(typeof(DropdownManipulation), nameof(DropdownManipulation.SelectCheck))]
-internal static class InstallCheckPatch
-{
-    private static bool Prefix(DropdownManipulation __instance, Item item, Slot slot, ref Error error, ref bool __result) =>
-        InstallPatch.PreviewSelection(__instance, item, slot, false, ref error, ref __result);
-}
-
 [HarmonyPatch(typeof(DropdownManipulation), nameof(DropdownManipulation.Select),
     new[] { typeof(Item), typeof(Slot), typeof(Error) }, new[] { ArgumentType.Normal, ArgumentType.Normal, ArgumentType.Out })]
 internal static class InstallPatch
@@ -261,22 +253,17 @@ internal static class InstallPatch
     private static readonly AccessTools.FieldRef<WeaponModdingScreen, DropdownManipulation> Manipulation =
         AccessTools.FieldRefAccess<WeaponModdingScreen, DropdownManipulation>("_manipulation");
 
-    private static bool Prefix(DropdownManipulation __instance, Item item, Slot slot, ref Error error, ref bool __result) =>
-        PreviewSelection(__instance, item, slot, true, ref error, ref __result);
-
-    internal static bool PreviewSelection(DropdownManipulation selector, Item item, Slot slot, bool clicked,
-        ref Error error, ref bool result)
+    private static bool Prefix(DropdownManipulation __instance, Item item, Slot slot, ref Error error, ref bool __result)
     {
-        if (!(selector is WeaponModdingManipulation) || !PreviewRows.IsPreview(item)) return true;
+        if (!(__instance is WeaponModdingManipulation) || !PreviewRows.IsPreview(item)) return true;
         if (!GearClient.Ready)
         {
             error = new StringError("This unlocked part cannot be fitted here.");
-            result = false;
+            __result = false;
             return false;
         }
-        // Use EFT's stash-row move or swap simulation for both the tooltip and the click.
-        result = selector.Select(item, slot, simulate: true, out error);
-        if (result && clicked) GearClient.Run(Install(selector, slot, item.TemplateId));
+        __result = __instance.SelectCheck(item, slot, out error);
+        if (__result) GearClient.Run(Install(__instance, slot, item.StringTemplateId));
         return false;
     }
 
@@ -303,6 +290,8 @@ internal static class InstallPatch
 [HarmonyPatch(typeof(DropDownMenu), nameof(DropDownMenu.CreateDropdownModdingItemView))]
 internal static class ModdingPreviewLabelPatch
 {
+    private const string BadgeName = "Unlocked gear badge";
+
     // Trader Modding adds price tags after EFT parents each dropdown or fitted-part view.
     [HarmonyPriority(Priority.Last)]
     private static void Postfix(SelectableItemContext sourceContext, Item item, RectTransform container) =>
@@ -336,14 +325,37 @@ internal static class ModdingPreviewLabelPatch
             }
         }
 
+        var label = GetBadge(view.transform);
+        var badge = (RectTransform)label.rectTransform.parent;
         var caption = view.Caption;
-        var box = new GameObject("Unlocked gear badge", typeof(RectTransform), typeof(Image)).GetComponent<Image>();
-        box.transform.SetParent(view.transform, false);
+        badge.offsetMax = new Vector2(-1, 1 + Mathf.Ceil(caption.fontSize * 1.3f));
+        label.font = caption.font;
+        label.fontSizeMax = caption.fontSize;
+        label.fontSizeMin = Mathf.Min(6f, label.fontSizeMax);
+        badge.SetAsLastSibling();
+        badge.gameObject.SetActive(true);
+
+        // The row and its badge return to EFT's pool when the item binding is disposed.
+        var binding = view.ItemContext;
+        void Hide()
+        {
+            binding.OnDisposed -= Hide;
+            if (badge != null) badge.gameObject.SetActive(false);
+        }
+        binding.OnDisposed += Hide;
+    }
+
+    private static TextMeshProUGUI GetBadge(Transform row)
+    {
+        var cached = row.Find(BadgeName);
+        if (cached != null) return cached.GetChild(0).GetComponent<TextMeshProUGUI>();
+
+        var box = new GameObject(BadgeName, typeof(RectTransform), typeof(Image)).GetComponent<Image>();
+        box.transform.SetParent(row, false);
         var rect = box.rectTransform;
         rect.anchorMin = Vector2.zero;
         rect.anchorMax = Vector2.right;
         rect.offsetMin = new Vector2(1, 1);
-        rect.offsetMax = new Vector2(-1, 1 + Mathf.Ceil(caption.fontSize * 1.3f));
         box.color = new Color(0, 0, 0, 0.85f);
         box.raycastTarget = false;
 
@@ -353,25 +365,13 @@ internal static class ModdingPreviewLabelPatch
         label.rectTransform.anchorMax = Vector2.one;
         label.rectTransform.offsetMin = new Vector2(1, 0);
         label.rectTransform.offsetMax = new Vector2(-1, 0);
-        label.font = caption.font;
         label.text = "Unlocked";
         label.enableAutoSizing = true;
-        label.fontSizeMax = caption.fontSize;
-        label.fontSizeMin = Mathf.Min(6f, label.fontSizeMax);
         label.enableWordWrapping = false;
         label.alignment = TextAlignmentOptions.Center;
         label.raycastTarget = false;
 
-        // EFT disposes this binding before lending the pooled view to another item.
-        var binding = view.ItemContext;
-        void Clear()
-        {
-            binding.OnDisposed -= Clear;
-            if (box == null) return;
-            box.gameObject.SetActive(false);
-            UnityEngine.Object.Destroy(box.gameObject);
-        }
-        binding.OnDisposed += Clear;
+        return label;
     }
 
     internal static bool IsUnlockedBuildPart(SelectableItemContext context, Item item) =>

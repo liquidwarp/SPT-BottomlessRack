@@ -12,11 +12,13 @@ public sealed record UnlockLedger
     [JsonPropertyName("unlockedTemplates")] public HashSet<string> Templates { get; init; } = [];
     [JsonPropertyName("lastSpawn")] public SpawnReceipt Receipt { get; init; } = new();
 
-    public static UnlockLedger Read(SptProfile profile)
+    public static UnlockLedger Read(SptProfile profile) => Read(profile, out _);
+
+    internal static UnlockLedger Read(SptProfile profile, out bool restored)
     {
-        profile.SptData ??= new();
-        var data = profile.SptData.GetExtensionData();
-        if (!data.TryGetValue(MyModInfo.MOD_GUID, out var entry)) return new();
+        restored = false;
+        var data = profile.SptData?.GetExtensionData();
+        if (data == null || !data.TryGetValue(MyModInfo.MOD_GUID, out var entry)) return new();
         var ledger = entry switch
         {
             UnlockLedger current => current,
@@ -25,10 +27,15 @@ public sealed record UnlockLedger
         };
         if (ledger is not { SchemaVersion: 1, Templates: not null, Receipt: not null })
             throw new InvalidDataException("Unsupported gear catalogue schema.");
+        restored = entry is JsonElement;
         return ledger;
     }
 
-    public void Write(SptProfile profile) => profile.SptData!.GetExtensionData()[MyModInfo.MOD_GUID] = this;
+    public void Write(SptProfile profile)
+    {
+        profile.SptData ??= new();
+        profile.SptData.GetExtensionData()[MyModInfo.MOD_GUID] = this;
+    }
 
     public UnlockLedger Discover(IEnumerable<MongoId> candidates, GearDefinitions definitions)
     {

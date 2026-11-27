@@ -89,19 +89,25 @@ $clientGear.GetProperty('Inventory', $static).SetValue($null, $controller)
 $clientGear.GetField('_revision', $static).SetValue($null, 1)
 foreach ($id in @($body._id) + $magpul) { $null = $unlocked.Add([string]$id) }
 
-function Get-Shortages($loadout) {
+function Set-Loadout($loadout) {
     $build = [EFT.UI.Builds.EquipmentBuild]::new([EFT.MongoID](New-ItemId), 'Preset', [EFT.Builds.EEquipmentBuildType]::Standard)
     $build._equipment = $loadout
     $screenType.GetField('_currentBuild', $fields).SetValue($screen, $build)
+}
+function Get-Shortages($loadout) {
+    Set-Loadout $loadout
     $missing = $null
     $errorReason = $null
     if (!$screen.TryApplyBuild([ref]$missing, [ref]$errorReason)) { throw "Preset simulation failed. $errorReason" }
     return ,$missing
 }
 function Apply-Loadout($loadout) {
-    if ((Get-Shortages $loadout).Count) { throw 'An available preset would have issued additional items.' }
-    $hook = $client.GetType('Liquidwarp.BottomlessRack.Client.EquipmentPresets').GetMethod('Prefix', $static)
-    if (!$hook.Invoke($null, @($screen, $screen._currentBuild, $controller, $false, $null))) { throw 'Equip intercepted a complete loadout.' }
+    Set-Loadout $loadout
+    [EquipCalls]::Simulations = [EquipCalls]::Applications = 0
+    $screen.EquipBuild()
+    if ([EquipCalls]::Simulations -ne 1 -or [EquipCalls]::Applications -ne 1) {
+        throw "Expected one availability check and one ApplyBuild call. Counts were $([EquipCalls]::Simulations) and $([EquipCalls]::Applications)."
+    }
     # Commit the same operations in memory that ApplyBuild would send on the inventory queue.
     $transfer = [ItemManipulator]::TransferContent($loadout, $equipment, [CompoundItem[]]@($table), $stash,
         $controller, $null, [string[]]@('Dogtag'), $false, $false)
@@ -112,6 +118,18 @@ function Apply-Loadout($loadout) {
 
 $harmony = [HarmonyLib.Harmony]::new('bottomlessrack.tests.equipmentpresets')
 try {
+    Add-Type @'
+public static class EquipCalls
+{
+    public static int Simulations;
+    public static int Applications;
+    public static void CountSimulation() { Simulations++; }
+    public static bool CaptureApply() { Applications++; return false; }
+}
+'@
+    $null = $harmony.CreateClassProcessor($client.GetType('Liquidwarp.BottomlessRack.Client.EquipmentPresets')).Patch()
+    $null = $harmony.Patch($screenType.GetMethod('TryApplyBuild'), [HarmonyLib.HarmonyMethod]::new([EquipCalls].GetMethod('CountSimulation')))
+    $null = $harmony.Patch($screenType.GetMethod('ApplyBuild'), [HarmonyLib.HarmonyMethod]::new([EquipCalls].GetMethod('CaptureApply')))
     foreach ($patch in $matcher.GetNestedTypes([Reflection.BindingFlags]'NonPublic')) {
         if ($patch.GetCustomAttributes([HarmonyLib.HarmonyPatch], $false).Length) {
             $null = $harmony.CreateClassProcessor($patch).Patch()
@@ -146,7 +164,7 @@ try {
             }
         }
     }
-    Write-Output 'PASS  Shotgunner requests a separate bare receiver, preserves the stock Mossberg and reuses the fitted copy across three round trips.'
+    Write-Output 'PASS  Shotgunner preserves both Mossbergs across three round trips. Each complete Equip runs one availability check and calls ApplyBuild once.'
 
     $rigTpl = New-Template ([VestTemplate]) (New-ItemId) '5448e5284bdc2dcb718b4567'
     $rigGrids = [Grid[]]@([Grid]::new('main', 3, 3, $false, $filters, $null))

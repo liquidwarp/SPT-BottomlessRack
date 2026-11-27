@@ -14,10 +14,14 @@ public record SpawnRequest : BaseInteractionRequestData
     [JsonPropertyName("lines")] public SpawnLine[]? Lines { get; set; }
 }
 
+internal sealed record CatalogueRequest([property: JsonPropertyName("knownRevision")] int? KnownRevision) : EmptyRequestData;
+
 [Injectable(TypePriority = OnLoadOrder.Routers + 1)]
 public class CatalogueRouter(JsonUtil json, HttpResponseUtil http, GearService gear) : StaticRouter(json,
 [
-    new RouteAction<EmptyRequestData>(GearProtocol.Catalogue, async (_, _, id, _, ct) => http.GetBody(await gear.Read(id, true, ct))),
+    // SPT supplies EmptyRequestData for a bodyless GET on this same route.
+    new RouteAction(GearProtocol.Catalogue, async (_, request, id, _, ct) =>
+        http.GetBody(await gear.Read(id, true, (request as CatalogueRequest)?.KnownRevision, ct)), typeof(CatalogueRequest)),
     new RouteAction<EmptyRequestData>(GearProtocol.Receipt, async (_, _, id, _, ct) => http.GetBody(await gear.Read(id, false, ct)))
 ]);
 

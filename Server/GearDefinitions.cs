@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using SPTarkov.DI.Annotations;
 using SPTarkov.Server.Core.DI;
+using SPTarkov.Server.Core.Helpers.Items;
 using SPTarkov.Server.Core.Models.Common;
 using SPTarkov.Server.Core.Models.Eft.Common.Tables;
 using SPTarkov.Server.Core.Models.Enums;
@@ -9,7 +10,7 @@ using SPTarkov.Server.Core.Models.Spt.Tables;
 namespace Liquidwarp.BottomlessRack.Server;
 
 [Injectable(InjectionType.Singleton, TypePriority = int.MaxValue)]
-public sealed class GearDefinitions(TemplateTable templates, GlobalTable globals, TradersTable traders) : IOnLoad
+public sealed class GearDefinitions(TemplateTable templates, GlobalTable globals, TradersTable traders, ItemHelper itemHelper) : IOnLoad
 {
     // SPT has finished registering modded content and has not started its trader update loop.
     public Task OnLoadAsync(CancellationToken ct = default)
@@ -21,37 +22,22 @@ public sealed class GearDefinitions(TemplateTable templates, GlobalTable globals
     private readonly ConcurrentDictionary<MongoId, bool> _eligible = new();
     private ConcurrentDictionary<MongoId, RecipePart[]> _recipes = new();
 
-    internal IEnumerable<MongoId> Ancestors(MongoId id)
-    {
-        // Guard bad item-mod hierarchies. Vanilla trees are only a few levels deep.
-        for (var depth = 0; depth < GearCategories.MaxDepth && templates.Items.TryGetValue(id, out var item) && item != null; depth++)
-        {
-            yield return id;
-            var parent = item.Parent;
-            if (parent.IsEmpty || parent == id)
-                yield break;
-            id = parent;
-        }
-    }
+    // EFT slot filters can name a concrete template. SPT's base-class cache contains its parents.
+    internal bool MatchesFilter(MongoId tpl, HashSet<MongoId> filter) =>
+        filter.Contains(tpl) || itemHelper.IsOfBaseclasses(tpl, filter);
+
+    internal bool MatchesFilter(MongoId tpl, MongoId filter) =>
+        templates.Items.ContainsKey(tpl) && (tpl == filter || itemHelper.IsOfBaseclass(tpl, filter));
 
     public bool Eligible(MongoId id) => _eligible.GetOrAdd(id, tpl =>
-    {
-        if (!templates.Items.TryGetValue(tpl, out var item) || item?.Type != "Item" ||
-            item.Properties is not { QuestItem: not true, Width: > 0, Height: > 0 })
-            return false;
-        bool matchesFamily = false;
-        foreach (var parent in Ancestors(tpl))
-        {
-            if (GearCategories.Exclusions.Contains(parent)) return false;
-            matchesFamily |= GearCategories.Families.Contains(parent);
-        }
-        return matchesFamily;
-    });
+        templates.Items.TryGetValue(tpl, out var item) && item?.Type == "Item" &&
+        item.Properties is { QuestItem: not true, Width: > 0, Height: > 0 } &&
+        MatchesFilter(tpl, GearCategories.Families) && !MatchesFilter(tpl, GearCategories.Exclusions));
 
     public RecipePart[] Recipe(MongoId id) => _recipes.GetOrAdd(id, MakeStandaloneRecipe);
 
     public bool CanIssue(MongoId id) => Eligible(id) && Recipe(id).Length > 0;
-    public bool IsWeapon(MongoId id) => Ancestors(id).Contains(BaseClasses.WEAPON);
+    public bool IsWeapon(MongoId id) => MatchesFilter(id, BaseClasses.WEAPON);
 
     private RecipePart[] MakeStandaloneRecipe(MongoId id)
     {
@@ -70,7 +56,7 @@ public sealed class GearDefinitions(TemplateTable templates, GlobalTable globals
                 var filter = slot.Properties?.Filters?.FirstOrDefault(f => f?.Locked == true);
                 if (filter == null) continue;
                 var insert = filter.Plate ?? filter.Filter?.FirstOrDefault();
-                if (insert.HasValue && Ancestors(insert.Value).Contains(BaseClasses.BUILT_IN_INSERTS))
+                if (insert.HasValue && MatchesFilter(insert.Value, BaseClasses.BUILT_IN_INSERTS))
                     (inserts ??= []).Add(new(insert.Value, i, name));
             }
         return inserts == null ? parts : [.. parts, .. inserts];

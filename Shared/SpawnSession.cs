@@ -39,23 +39,13 @@ public sealed class SpawnSession
             var receipt = await readReceipt();
             _lastSequence = receipt.Sequence;
             _uncertain = false;
-            if (receipt.Sequence >= sequence && (receipt.Sequence != sequence || !SameRequest(lines, receipt.Lines)))
+            if (receipt.Sequence >= sequence && (receipt.Sequence != sequence || !GearProtocol.SameRequest(lines, receipt.Lines)))
                 throw new SpawnNotice("The receipt belongs to another gear request. Check your stash before trying again.");
             if (receipt.Sequence != sequence)
                 throw new SpawnNotice(string.IsNullOrEmpty(error) ? "Gear was not issued. Check the space in your stash and try again." : error);
             return receipt;
         }
         finally { _busy = false; }
-    }
-
-    private static bool SameRequest(IReadOnlyList<SpawnLine> requested, SpawnLine[] receipt)
-    {
-        if (requested.Count != receipt.Length) return false;
-        // UI requests contain one sorted line per template, just like the server receipt.
-        for (var i = 0; i < receipt.Length; i++)
-            if (requested[i].TemplateId != receipt[i].TemplateId || requested[i].Quantity != receipt[i].Quantity ||
-                requested[i].BareWeapon != receipt[i].BareWeapon) return false;
-        return true;
     }
 }
 

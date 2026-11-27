@@ -204,6 +204,11 @@ public sealed class WeaponRecipeTests : ServerFixture
         Assert.That((await LoadGear()).CanIssue(receiver), Is.False);
         filter.GetExtensionData().Clear();
         Assert.That((await LoadGear()).CanIssue(receiver), Is.True);
+        filter.Filter = [BaseClasses.MOD];
+        Assert.That((await LoadGear()).CanIssue(receiver), Is.True);
+        filter.GetExtensionData()["ExcludedFilter"] = JsonSerializer.SerializeToElement(new[] { BaseClasses.MOD.ToString() });
+        Assert.That((await LoadGear()).CanIssue(receiver), Is.False);
+        filter.GetExtensionData().Clear();
         filter.Filter = [];
         Assert.That((await LoadGear()).CanIssue(receiver), Is.False);
     }

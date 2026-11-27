@@ -72,7 +72,7 @@ internal static class GearClient
                 var head = await Fetch(GearProtocol.Receipt);
                 if (head.Revision == _revision) return;
             }
-            var data = await Fetch(GearProtocol.Catalogue);
+            var data = await Fetch(GearProtocol.Catalogue, _revision);
             if (!ReferenceEquals(session, _session)) return;
             _requests.Resume(data.Receipt.Sequence);
             if (_revision == data.Revision) return;
@@ -88,9 +88,11 @@ internal static class GearClient
         }
     }
 
-    private static async Task<Catalogue> Fetch(string path)
+    private static async Task<Catalogue> Fetch(string path, int knownRevision = -1)
     {
-        var json = await RequestHandler.GetJsonAsync(path);
+        var json = knownRevision < 0
+            ? await RequestHandler.GetJsonAsync(path)
+            : await RequestHandler.PostJsonAsync(path, JsonConvert.SerializeObject(new { knownRevision }));
         var reply = JsonConvert.DeserializeObject<Envelope>(json);
         if (reply?.Data == null || reply.Error != 0)
             throw new InvalidOperationException(reply?.Message ?? "The gear catalogue server did not respond.");

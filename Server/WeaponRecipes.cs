@@ -138,7 +138,7 @@ internal sealed class WeaponRecipes(TemplateTable templates, GearDefinitions gea
     {
         foreach (var filter in slot.Properties?.Filters ?? [])
         {
-            if (filter?.Filter == null || !gear.Ancestors(parts[child].Template).Any(filter.Filter.Contains)) return false;
+            if (filter?.Filter == null || !gear.MatchesFilter(parts[child].Template, filter.Filter)) return false;
             // SPT 4.1 carries attachment-slot ExcludedFilter through its JSON extension data.
             if (!filter.TryGetExtensionData(out var extra) || !extra!.TryGetValue("ExcludedFilter", out var value) ||
                 value == null) continue;
@@ -153,7 +153,7 @@ internal sealed class WeaponRecipes(TemplateTable templates, GearDefinitions gea
                     !MongoId.IsValidMongoId(valueId)) return false;
                 var id = new MongoId(valueId);
                 for (var i = child; i < parts.Count; i++)
-                    if (gear.Ancestors(parts[i].Template).Contains(id)) return false;
+                    if (gear.MatchesFilter(parts[i].Template, id)) return false;
             }
         }
         return true;

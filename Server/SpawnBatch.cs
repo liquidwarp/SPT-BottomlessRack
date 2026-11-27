@@ -33,8 +33,7 @@ public sealed record SpawnBatch(SpawnReceipt Receipt, List<Item> Additions)
             entry.Quantity += line.Quantity;
         }
         var canonical = requests.Values.ToArray();
-        if (sequence == ledger.Receipt.Sequence && canonical.Select(l => (l.TemplateId, l.Quantity, l.BareWeapon))
-            .SequenceEqual(ledger.Receipt.Lines.Select(l => (l.TemplateId, l.Quantity, l.BareWeapon))))
+        if (sequence == ledger.Receipt.Sequence && GearProtocol.SameRequest(canonical, ledger.Receipt.Lines))
             return new(ledger.Receipt, []);
         if (sequence - 1 != ledger.Receipt.Sequence)
             throw new SpawnRejected("Gear requests are out of sync. Check your stash before trying again.");

@@ -86,14 +86,18 @@ internal static class EquipmentPresets
             return true;
         if (_equipping || ____isApplying) return false;
         if (!__instance.TryApplyBuild(out var missing, out _)) return false;
-        if (missing.Count == 0 || (CatalogueReady(____realInventoryController) && !missing.Exists(IsUnlocked)))
-            return true;
-        GearClient.Run(Equip(__instance, ____currentBuild, ____realInventoryController, ___UI.CancellationToken));
+        if (missing.Count == 0)
+        {
+            __instance.ApplyBuild(____currentBuild);
+            return false;
+        }
+        if (CatalogueReady(____realInventoryController) && !missing.Exists(IsUnlocked)) return true;
+        GearClient.Run(Equip(__instance, ____currentBuild, ____realInventoryController, ___UI.CancellationToken, missing));
         return false;
     }
 
     private static async Task Equip(EquipmentBuildsScreen screen, EquipmentBuild build, InventoryController inventory,
-        CancellationToken lifetime, bool allowPartial = false)
+        CancellationToken lifetime, List<Item> missing = null, bool allowPartial = false)
     {
         _equipping = true;
         try
@@ -101,8 +105,10 @@ internal static class EquipmentPresets
             bool Current() => !lifetime.IsCancellationRequested && screen != null && screen.isActiveAndEnabled &&
                 ReferenceEquals(build, CurrentBuild(screen)) && GearClient.OutOfRaid;
 
-            bool catalogueReady = await GearClient.EnsureCatalogue(inventory);
-            if (!Current() || !screen.TryApplyBuild(out var missing, out _)) return;
+            var catalogue = GearClient.EnsureCatalogue(inventory);
+            bool recheck = missing == null || !catalogue.IsCompleted;
+            bool catalogueReady = await catalogue;
+            if (!Current() || (recheck && !screen.TryApplyBuild(out missing, out _))) return;
             if (missing.Count == 0)
             {
                 screen.ApplyBuild(build);
@@ -128,7 +134,7 @@ internal static class EquipmentPresets
                 if (locked.Count > 0)
                 {
                     // Shopping or cancelling should leave no partly assembled gear in the stash.
-                    OfferPurchase(locked, () => GearClient.Run(Equip(screen, build, inventory, lifetime, true)));
+                    OfferPurchase(locked, () => GearClient.Run(Equip(screen, build, inventory, lifetime, allowPartial: true)));
                     return;
                 }
             }

@@ -8,13 +8,8 @@ using HarmonyLib;
 
 namespace Liquidwarp.BottomlessRack.Client;
 
-[HarmonyPatch(typeof(TraderDealScreen), nameof(TraderDealScreen.Close))]
 internal static class GearSales
 {
-    // Only the PMC trader screen sets this. The Scav transfer also stages items with Fence.
-    internal static Trader CurrentTrader;
-    private static void Prefix() => CurrentTrader = null;
-
     private static readonly ConditionalWeakTable<ItemTemplate, StrongBox<bool>> Covered = new();
 
     internal static bool CoversTemplate(ItemTemplate template) => Covered.GetValue(template, Classify).Value;
@@ -49,7 +44,7 @@ internal static class GearSales
     {
         private static bool Prefix(Trader __instance, Item item, ref Trader.ItemPrice? __result)
         {
-            if (!ReferenceEquals(__instance, CurrentTrader) || !ContainsGear(item)) return true;
+            if (!ReferenceEquals(__instance, TraderPurchases.CurrentTrader) || !ContainsGear(item)) return true;
             __result = null;
             return false;
         }
@@ -60,7 +55,7 @@ internal static class GearSales
     {
         private static bool Prefix(Assortment __instance)
         {
-            if (!ReferenceEquals(CurrentTrader?.CurrentAssortment, __instance)) return true;
+            if (!ReferenceEquals(TraderPurchases.CurrentTrader?.CurrentAssortment, __instance)) return true;
             // EFT stages clones. Inspect the originals so changes after staging count.
             foreach (var item in __instance._clones.Values)
                 if (ContainsGear(item))

@@ -47,7 +47,7 @@ Write-Output 'PASS  Profile JSON preserves the unlock, its schema version, and u
 Write-Output 'PASS  An independent profile has its own catalogue state.'
 
 # Read signatures as metadata so Unity and its native runtime are never initialized.
-$null = [Reflection.Assembly]::LoadFrom((Join-Path $installDir 'BepInEx/core/Mono.Cecil.dll'))
+$null = [Reflection.Assembly]::LoadFrom((Join-Path $installDir 'SPT_Runtime/Mono.Cecil.dll'))
 $eftPath = Join-Path $installDir 'EscapeFromTarkov_Data/Managed/Assembly-CSharp.dll'
 $selectorMethods = @(
     'System.Collections.Generic.IEnumerable`1<EFT.InventoryLogic.Item> GetItemCollections(EFT.InventoryLogic.Slot)'
@@ -222,6 +222,8 @@ try {
 }
 
 if ($ClientAssembly) {
+    $null = [Reflection.Assembly]::LoadFrom((Join-Path $installDir 'SPT_Runtime/0Harmony.dll'))
+    $null = [Reflection.Assembly]::LoadFrom((Join-Path $installDir 'BepInEx/plugins/spt/spt-common.dll'))
     $client = [Reflection.Assembly]::LoadFrom((Get-Item -LiteralPath $ClientAssembly).FullName)
     $null = [Reflection.Assembly]::LoadFrom($eftPath)
     $null = [Reflection.Assembly]::LoadFrom((Join-Path $installDir 'EscapeFromTarkov_Data/Managed/Comfort.dll'))
@@ -229,14 +231,6 @@ if ($ClientAssembly) {
     $namespace = 'Liquidwarp.BottomlessRack.Client'
     $plugin = [Mono.Cecil.ModuleDefinition]::ReadModule($client.Location)
     try {
-        if ($null -ne $plugin.GetType("$namespace.CataloguePanel")) { throw 'The client still includes the standalone stash menu.' }
-        foreach ($name in 'MenuCataloguePatch', 'StashPatch', 'ModdingScreenPatch', 'BuildScreenPatch', 'TraderPurchases') {
-            $entry = $plugin.GetType("$namespace.$name").Methods | Where-Object Name -CEQ 'Postfix'
-            $calls = @($entry.Body.Instructions.Operand | Where-Object { $_ -is [Mono.Cecil.MethodReference] })
-            if ($calls.FullName -cnotcontains "System.Void $namespace.GearClient::Enter(EFT.InventoryLogic.InventoryController)") {
-                throw "$name no longer loads unlocks when its native screen opens."
-            }
-        }
         foreach ($type in $plugin.GetTypes()) {
             $menuCalls = $type.Methods.Body.Instructions.Operand | Where-Object {
                 $_ -is [Mono.Cecil.MethodReference] -and $_.DeclaringType.Name -ceq 'DropDownMenu' -and $_.Name -in 'Show', 'Close'
@@ -264,51 +258,6 @@ if ($ClientAssembly) {
     } finally {
         $plugin.Dispose()
     }
-    Write-Output 'PASS  The native inventory, Modding, and Edit Build screens load unlocks without the standalone stash menu.'
-
-    $selectorHooks = @{
-        EquipPreviewTagPatch = @([EFT.UI.EquipItemWindow], 'RefreshItemViews')
-        ModdingPreviewLabelPatch = @([EFT.UI.WeaponModding.DropDownMenu], 'CreateDropdownModdingItemView')
-        'ModdingPreviewLabelPatch+FittedPart' = @([EFT.UI.WeaponModding.ModdingScreenSlotView], 'CreateModdingItemView')
-        InstallCheckPatch = @([EFT.InventoryLogic.DropdownManipulation], 'SelectCheck')
-        InstallPatch = @([EFT.InventoryLogic.DropdownManipulation], 'Select')
-        EquippedModdingSlotPatch = @([EFT.UI.WeaponModding.ModdingScreenSlotView], 'Show')
-        EquipmentPresets = @([EFT.UI.EquipmentBuildsScreen], 'EquipBuild')
-        'EquipmentPresets+Open' = @([EFT.UI.EquipmentBuildsScreen], 'Show')
-        'EquipmentPresets+Preview' = @([EFT.UI.EquipmentBuildsScreen], 'UpdatePreview')
-        BuildAssembly = @([EFT.UI.EditBuildScreen], 'TryToAssembleBuild')
-        UnlockedWeaponBodyPatch = @([EFT.UI.EditBuildScreen], 'CheckForVitalParts')
-        TraderPurchases = @([EFT.UI.TraderDealScreen], 'Show')
-        'TraderPurchases+Price' = @([EFT.UI.DragAndDrop.TradingItemView], 'SetPrice')
-        'TraderPurchases+Hover' = @([EFT.UI.DragAndDrop.TradingItemView], 'ShowTooltip')
-        'TraderPurchases+Select' = @([EFT.Trading.Assortment], 'SelectItem')
-        'TraderPurchases+Validate' = @([EFT.UI.TraderDealScreen], 'IsValidDeal')
-        'TraderPurchases+ExchangeDeal' = @([EFT.UI.TraderDealScreen], 'OnDealButtonClickAsync')
-        GearSales = @([EFT.UI.TraderDealScreen], 'Close')
-        'GearSales+SellQuote' = @([EFT.Trading.Trader], 'GetUserItemPrice')
-        'GearSales+Sell' = @([EFT.Trading.Assortment], 'Sell')
-        'GearSales+SelectOffer' = @([EFT.UI.Ragfair.RagFair], 'CanBeSelectedAtRagfair')
-        'GearSales+ConfirmOffer' = @([EFT.UI.Ragfair.AddOfferWindow], 'CheckRestrictions')
-    }
-    foreach ($binding in $selectorHooks.GetEnumerator()) {
-        $patch = $client.GetType("$namespace.$($binding.Key)", $true)
-        $targets = @($patch.GetCustomAttributesData() | Where-Object { $_.AttributeType.FullName -ceq 'HarmonyLib.HarmonyPatch' })
-        if ($targets.Count -ne 1 -or $targets[0].ConstructorArguments[0].Value -ne $binding.Value[0] -or
-            $targets[0].ConstructorArguments[1].Value -cne $binding.Value[1]) { throw "Unexpected selector target on $patch" }
-    }
-    $installHook = $client.GetType("$namespace.InstallPatch").GetCustomAttributes([HarmonyLib.HarmonyPatch], $false)[0].info
-    $wrapper = $installHook.declaringType.GetMethod($installHook.methodName, $installHook.argumentTypes)
-    if ($wrapper.GetParameters().Count -ne 3 -or !$wrapper.GetParameters()[2].IsOut) {
-        throw 'The live preview hook must intercept the three-argument click before the four-argument swap.'
-    }
-    foreach ($name in 'EquipPreviewTagPatch', 'ModdingPreviewLabelPatch', 'ModdingPreviewLabelPatch+FittedPart') {
-        $tag = $client.GetType("$namespace.$name").GetMethod('Postfix', $flags)
-        $priority = $tag.GetCustomAttributesData() | Where-Object { $_.AttributeType.FullName -ceq 'HarmonyLib.HarmonyPriority' }
-        if ($null -eq $priority -or $priority.ConstructorArguments[0].Value -ne [HarmonyLib.Priority]::Last) {
-            throw "$name must label the item after its location or price has been drawn."
-        }
-    }
-    Write-Output 'PASS  Equipment, dropdown labels, and equipped-slot hover target their native views.'
 
     # Edit Build can show two distinct EFT items for the picker entry and the part fitted to the plan.
     $template = [EFT.InventoryLogic.ModTemplate]::new()
@@ -323,13 +272,66 @@ if ($ClientAssembly) {
     $originalRevision = $revision.GetValue($null)
     $buildLabel = $client.GetType("$namespace.ModdingPreviewLabelPatch").GetMethod('IsUnlockedBuildPart', $flags)
     $previewRows = $client.GetType("$namespace.PreviewRows")
-    $previews = $previewRows.GetField('Previews', $flags).GetValue($null)
     $cache = $previewRows.GetField('ByTemplate', $flags).GetValue($null)
+    $harmony = [HarmonyLib.Harmony]::new('bottomlessrack.tests.selectors')
     try {
+        $harmony.PatchAll($client)
+        foreach ($factory in @([EFT.UI.EquipItemWindow].GetMethod('RefreshItemViews'),
+                               [EFT.UI.WeaponModding.DropDownMenu].GetMethod('CreateDropdownModdingItemView'),
+                               [EFT.UI.WeaponModding.ModdingScreenSlotView].GetMethod('CreateModdingItemView'))) {
+            $tags = [HarmonyLib.Harmony]::GetPatchInfo($factory).Postfixes | Where-Object owner -eq $harmony.Id
+            if ($tags.priority -notcontains [HarmonyLib.Priority]::Last) {
+                throw "$($factory.Name) must label the item after its location or price has been drawn."
+            }
+        }
+        Add-Type @'
+public static class CatalogueHttpFixture
+{
+    public static readonly System.Collections.Generic.List<object[]> Requests = new();
+    public static string Reply;
+    public static bool Respond(object[] __args, ref System.Threading.Tasks.Task<string> __result)
+    {
+        Requests.Add(__args);
+        __result = System.Threading.Tasks.Task.FromResult(Reply);
+        return false;
+    }
+}
+'@
+        $requests = [CatalogueHttpFixture]::Requests
+        $requests.Clear()
+        $respond = [HarmonyLib.HarmonyMethod]::new([CatalogueHttpFixture].GetMethod('Respond'))
+        foreach ($method in 'GetJsonAsync', 'PostJsonAsync') {
+            $null = $harmony.Patch([SPT.Common.Http.RequestHandler].GetMethod($method), $respond)
+        }
+        $app = [Runtime.CompilerServices.RuntimeHelpers]::GetUninitializedObject([EFT.TarkovApplication])
+        $backend = [Runtime.CompilerServices.RuntimeHelpers]::GetUninitializedObject([EFT.EftClientBackend])
+        $backend._session = [Runtime.CompilerServices.RuntimeHelpers]::GetUninitializedObject([EFT.EftClientBackendSession])
+        [EFT.ClientApplication[EFT.IEftSession]].GetField('ClientBackEnd', [Reflection.BindingFlags]'NonPublic, Instance').SetValue($app, $backend)
+        [Comfort.Common.Singleton[EFT.ClientApplication[EFT.IEftSession]]]::Instance = $app
+        $menu = [Runtime.CompilerServices.RuntimeHelpers]::GetUninitializedObject([EFT.MainMenuShowOperation])
+        $menuController = [Runtime.CompilerServices.RuntimeHelpers]::GetUninitializedObject([EFT.InventoryLogic.OfflineInventoryController])
+        $weapon = '000000000000000000000055'
+        $optic = $pickerItem.StringTemplateId
+        $recipe = @(@{ templateId = $weapon; parentIndex = -1 }, @{ templateId = $optic; parentIndex = 0; slotId = 'mod_scope' })
+        $full = @{ revision = 2; templates = @($weapon, $optic); weaponBuilds = @{ $weapon = $recipe }; receipt = @{ sequence = 0 } }
+        foreach ($data in $full, @{ revision = 2; receipt = @{ sequence = 1 } }) {
+            [CatalogueHttpFixture]::Reply = @{ data = $data } | ConvertTo-Json -Depth 8 -Compress
+            $menu.InventoryController = $menuController
+            $null = $gear.GetProperty('CurrentRead', $flags).GetValue($null).GetAwaiter().GetResult()
+            $parts = $gear.GetProperty('WeaponBuilds', $flags).GetValue($null)[$weapon]
+            if (![object]::ReferenceEquals($gear.GetProperty('Inventory', $flags).GetValue($null), $menuController) -or
+                !$unlocks.SetEquals([string[]]@($weapon, $optic)) -or $parts.Count -ne 2 -or $parts[1].TemplateId -ne $optic) {
+                throw 'Both menu reads must leave the current inventory with its earned templates and weapon recipe.'
+            }
+        }
+        if ($requests.Count -ne 2 -or $requests[0].Length -ne 1 -or $requests[0][0] -ne '/bottomlessrack/catalogue' -or
+            $requests[1][0] -ne $requests[0][0] -or ($requests[1][1] | ConvertFrom-Json).knownRevision -ne 2) {
+            throw 'Expected a bodyless catalogue read followed by a read with the cached revision.'
+        }
+        $backend._session = $null
+        $menu.InventoryController = $menuController
         $revision.SetValue($null, 1)
-        $null = $previews.Add($pickerItem)
-        $check = $client.GetType("$namespace.InstallCheckPatch").GetMethod('Prefix', $flags)
-        $click = $client.GetType("$namespace.InstallPatch").GetMethod('Prefix', $flags)
+        $cache.Add($pickerItem.StringTemplateId, $pickerItem)
         # Use a detached preview and a real stash copy so EFT can simulate both a move and a swap.
         $previewOwner = [EFT.InventoryLogic.ItemController]::new($pickerItem, 'preview', 'Unlocked gear', $false, 'HideoutProduction')
         $filters = [EFT.InventoryLogic.ItemFilter[]]@()
@@ -363,22 +365,17 @@ if ($ClientAssembly) {
         foreach ($item in $body, $fittedItem) { $null = $stash.Grid.FindLocationForItem($item).Add($item, $false) }
         $live = [EFT.InventoryLogic.WeaponModdingManipulation]::new($controller, [EFT.InventoryLogic.CompoundItem[]]@($stash))
         $edit = [Runtime.CompilerServices.RuntimeHelpers]::GetUninitializedObject([EFT.InventoryLogic.EditBuildManipulation])
-        foreach ($operation in $check, $click) {
-            # A live click with an active Unity screen goes through the asynchronous stash-use tests.
-            $available = $operation -eq $check
-            $revision.SetValue($null, $(if ($available) { 1 } else { -1 }))
-            foreach ($selector in $edit, $live) {
-                foreach ($part in $pickerItem, $fittedItem) {
-                    $argsForHook = [object[]]@($selector, $part, $slot, $null, $false)
-                    $passToEft = $operation.Invoke($null, $argsForHook)
-                    $ourPreview = $selector -eq $live -and $part -eq $pickerItem
-                    if ($passToEft -eq $ourPreview -or ($ourPreview -and $argsForHook[4] -ne $available) -or
-                        ($ourPreview -and !$available -and $null -eq $argsForHook[3])) {
-                        throw "Wrong selection route for $($selector.GetType().Name) and $($part.Id)."
-                    }
-                }
-            }
+        $reason = $null
+        $revision.SetValue($null, -1)
+        # Native selection accepts the current item without needing Unity audio or a transaction.
+        $slot.ContainedItem = $fittedItem
+        if (!$live.Select($fittedItem, $slot, [ref]$reason)) { throw 'The owned copy was intercepted as a preview.' }
+        $slot.ContainedItem = $pickerItem
+        if (!$edit.Select($pickerItem, $slot, [ref]$reason)) { throw 'Edit Build tried to issue a preview.' }
+        if ($live.Select($pickerItem, $slot, [ref]$reason) -or $null -eq $reason) {
+            throw 'Live Modding accepted a stale catalogue click.'
         }
+        $slot.ContainedItem = $null
         $revision.SetValue($null, 1)
         $blockingTemplate = [EFT.InventoryLogic.ItemTemplate]::new()
         $blockingTemplate._id = [EFT.MongoID]'000000000000000000000018'
@@ -395,30 +392,33 @@ if ($ClientAssembly) {
                 $reason -isnot [EFT.InventoryLogic.Slot+ConflictingItemError] -or $reason.ConflictingItem -ne $blocker) {
                 throw 'The stash copy must report the conflicting attachment still fitted to the build.'
             }
-            foreach ($operation in $check, $click) {
-                $values = [object[]]@($live, $pickerItem, $slot, $null, $true)
-                if ($operation.Invoke($null, $values) -or $values[4] -or $values[3].GetType() -ne $reason.GetType() -or
-                    $values[3].ConflictingItem -ne $blocker -or $slot.ContainedItem -ne $previous -or $pickerItem.Owner -ne $previewOwner) {
+            foreach ($operation in 'SelectCheck', 'Select') {
+                $previewError = $null
+                if ($live.$operation($pickerItem, $slot, [ref]$previewError) -or $previewError.GetType() -ne $reason.GetType() -or
+                    $previewError.ConflictingItem -ne $blocker -or $slot.ContainedItem -ne $previous -or $pickerItem.Owner -ne $previewOwner) {
                     throw 'A blocked preview must reject hover and click with the same conflict as the stash copy and preserve both items.'
                 }
             }
             $null = $nearbySlot.RemoveItemWithoutRestrictions()
-            $values = [object[]]@($live, $pickerItem, $slot, $null, $false)
-            if (!$live.SelectCheck($fittedItem, $slot, [ref]$reason) -or $check.Invoke($null, $values) -or !$values[4] -or
-                $null -ne $values[3] -or $slot.ContainedItem -ne $previous -or $pickerItem.Owner -ne $previewOwner) {
+            if (!$live.SelectCheck($fittedItem, $slot, [ref]$reason) -or !$live.SelectCheck($pickerItem, $slot, [ref]$reason) -or
+                !$live.Select($pickerItem, $slot, [ref]$reason) -or $null -ne $reason -or
+                $slot.ContainedItem -ne $previous -or $pickerItem.Owner -ne $previewOwner) {
                 throw 'Removing the blocker must enable the preview, including when the part being replaced conflicts with it.'
             }
         }
         $null = $slot.RemoveItemWithoutRestrictions()
         $id = $pickerItem.StringTemplateId
         $null = $unlocks.Add($id)
-        $cache.Add($id, $pickerItem)
-        $include = $previewRows.GetMethod('Include', $flags)
+        $filter = [EFT.InventoryLogic.ItemFilter]::new()
+        $filter.Filter = [EFT.MongoID[]]@($template._id)
+        $pickerSlot = [EFT.InventoryLogic.Slot]::new('mod_scope', [EFT.InventoryLogic.ItemFilter[]]@($filter), $false, 'Merge')
         foreach ($editBuild in $false, $true) {
             foreach ($hasOwned in $false, $true) {
-                $owned = [EFT.InventoryLogic.Item[]]@()
-                if ($hasOwned) { $owned = [EFT.InventoryLogic.Item[]]@($fittedItem) }
-                $rows = @($include.Invoke($null, [object[]]@($owned, $slot, $editBuild, $false)))
+                $collections = [EFT.InventoryLogic.CompoundItem[]]@()
+                if ($hasOwned) { $collections = [EFT.InventoryLogic.CompoundItem[]]@($stash) }
+                $selector = if ($editBuild) { [EFT.InventoryLogic.EditBuildManipulation]::new($controller, $collections, $null, $null, $false) }
+                    else { [EFT.InventoryLogic.WeaponModdingManipulation]::new($controller, $collections) }
+                $rows = @($selector.GetItemCollections($pickerSlot))
                 $expected = if ($hasOwned -and $editBuild) { @($fittedItem) }
                     elseif ($hasOwned) { @($fittedItem, $pickerItem) } else { @($pickerItem) }
                 if ($rows.Count -ne @($expected).Count) { throw "Wrong row count (Edit Build=$editBuild, owned=$hasOwned)" }
@@ -442,13 +442,16 @@ if ($ClientAssembly) {
             }
         }
     } finally {
+        $harmony.UnpatchSelf()
+        [Comfort.Common.Singleton[EFT.ClientApplication[EFT.IEftSession]]]::Instance = $null
+        $gear.GetProperty('Inventory', $flags).SetValue($null, $null)
         $null = $cache.Remove($pickerItem.StringTemplateId)
-        $null = $previews.Remove($pickerItem)
         $null = $unlocks.Remove($pickerItem.StringTemplateId)
         $revision.SetValue($null, $originalRevision)
     }
     Write-Output 'PASS  An earned template labels both Edit Build item instances and leaves ordinary Modding rows alone.'
-    Write-Output 'PASS  Both dropdown wrappers intercept only the exact live preview and pass the same-template owned item and Edit Build through.'
+    Write-Output 'PASS  The first menu entry loads the catalogue. Reentry sends its revision and preserves its templates and weapon recipe.'
+    Write-Output 'PASS  Only the exact preview click in live Modding requires a ready catalogue.'
     Write-Output 'PASS  A conflicting attachment blocks preview hover and click with the stash error, and removing it permits a move or swap.'
     Write-Output 'PASS  Edit Build keeps the native item or appends one earned choice. Live Modding keeps owned and catalogue rows distinct.'
 
@@ -530,10 +533,6 @@ if ($ClientAssembly) {
         $container.SetValue($stockView, $stockGrid)
         $screen.TradeMode = [EFT.UI.ETradeMode]::Sale
         if ($marked.Invoke($null, @($stockView, $assort)) -or -not (& $canDeal)) { throw 'The Sell tab was restricted.' }
-        $activeShop.SetValue($null, $null)
-        [EFT.Trading.Trader].GetField('Id').SetValue($trader, '579dc571d53a0658a154fbec')
-        $shopType.GetMethod('Postfix', $flags).Invoke($null, [object[]]@($screen, $trader, $null, $null, $null))
-        if ($null -ne $activeShop.GetValue($null)) { throw 'Fence activated the shop restriction.' }
     } finally {
         $activeShop.SetValue($null, $previousShop)
         $null = $unlocks.Remove($pickerItem.StringTemplateId)
@@ -541,7 +540,7 @@ if ($ClientAssembly) {
         $revision.SetValue($null, $originalRevision)
     }
     Write-Output 'PASS  Trader costs, selection and Deal follow the offered template for cash and both barter directions.'
-    Write-Output 'PASS  Catalogue loading, a stale exchange quote, the stash, Sell and Fence use the intended purchase rules.'
+    Write-Output 'PASS  Catalogue loading, a stale exchange quote, the stash and Sell use the intended purchase rules.'
 
     function New-SaleTemplate([string]$id, [EFT.InventoryLogic.ItemTemplate]$parent) {
         $tpl = [Runtime.CompilerServices.RuntimeHelpers]::GetUninitializedObject([EFT.InventoryLogic.ItemTemplate])
@@ -564,8 +563,6 @@ if ($ClientAssembly) {
     $boxSlot = [EFT.InventoryLogic.Slot]::new('test', [EFT.InventoryLogic.ItemFilter[]]@(), $false, 0)
     $box.Slots = [EFT.InventoryLogic.Slot[]]@($boxSlot)
     $box.Grids = [EFT.InventoryLogic.Grid[]]@()
-    $salesType = $client.GetType("$namespace.GearSales")
-    $activeBuyer = $salesType.GetField('CurrentTrader', $flags)
     $quoteCheck = $client.GetType("$namespace.GearSales+SellQuote").GetMethod('Prefix', $flags)
     $confirmSale = $client.GetType("$namespace.GearSales+Sell").GetMethod('Prefix', $flags)
     $listingCheck = $client.GetType("$namespace.GearSales+SelectOffer").GetMethod('Prefix', $flags)
@@ -575,9 +572,19 @@ if ($ClientAssembly) {
     $null = $context._selectedItems.Add($box)
     $assort._clones = [Collections.Generic.Dictionary[EFT.InventoryLogic.Item,EFT.InventoryLogic.Item]]::new()
     $assort._clones.Add($medkit, $box)
+    $openShop = $shopType.GetMethod('Prefix', $flags)
+    $oldLifetime = [EFT.UI.UIParent]::new()
+    $lifetime = [EFT.UI.UIParent]::new()
     try {
-        # Fence enters the same sale scope as an ordinary trader, before the native screen builds its item views.
-        $shopType.GetMethod('Prefix', $flags).Invoke($null, [object[]]@($trader))
+        # Rebinding the same trader must survive cleanup from the previous screen lifetime.
+        [EFT.Trading.Trader].GetField('Id').SetValue($trader, '579dc571d53a0658a154fbec')
+        $screen.TradeMode = [EFT.UI.ETradeMode]::Purchase
+        $openShop.Invoke($null, [object[]]@($screen, $trader, $null, $oldLifetime))
+        $openShop.Invoke($null, [object[]]@($screen, $trader, $null, $lifetime))
+        $oldLifetime.Dispose()
+        if ($quoteCheck.Invoke($null, [object[]]@($trader, $part, $null))) { throw 'Fence lost its sale scope before binding stock.' }
+        $shopType.GetMethod('Postfix', $flags).Invoke($null, [object[]]@($null))
+        if ($null -ne $shopType.GetProperty('BuyTab', $flags).GetValue($null)) { throw 'Fence activated the purchase restriction.' }
         foreach ($item in $questPart, $round, $box, $part) {
             $covered = $item -eq $part
             $selection = [object[]]@($item, $null, $true)
@@ -597,12 +604,13 @@ if ($ClientAssembly) {
         if (!$confirmSale.Invoke($null, @($assort)) -or !$confirmListing.Invoke($null, [object[]]@($context, $null))) {
             throw 'The empty container stayed blocked.'
         }
-        $salesType.GetMethod('Prefix', $flags).Invoke($null, @())
+        $lifetime.Dispose()
         if (!$quoteCheck.Invoke($null, [object[]]@($trader, $part, $null))) { throw 'Fence kept the PMC sale filter for the Scav transfer.' }
     } finally {
-        $activeBuyer.SetValue($null, $null)
+        $oldLifetime.Dispose()
+        $lifetime.Dispose()
     }
-    Write-Output 'PASS  PMC quotes and flea offers check live contents and template exclusions. Scav Fence quotes pass through.'
+    Write-Output 'PASS  PMC quotes and flea offers check live contents and template exclusions. Fence permits purchases and restores Scav quotes on close.'
 
     $inspect = $client.GetType("$namespace.InspectDescription").GetMethod('Postfix', $flags)
     $updated = $gear.GetField('Updated', $flags)

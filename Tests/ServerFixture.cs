@@ -128,7 +128,7 @@ public abstract class ServerFixture
 
     protected async Task<GearDefinitions> LoadGear()
     {
-        Gear = new(Templates, Globals, TradersDb);
+        Gear = new(Templates, Globals, TradersDb, ItemHelper);
         await Gear.OnLoadAsync();
         var purchases = new TraderPurchasePersisterService(TestLog.For<TraderPurchasePersisterService>(), null!, new(), Profiles, null!, null!);
         var assorts = new TraderAssortHelper(TestLog.For<TraderAssortHelper>(), TradersDb, new(), Profiles,

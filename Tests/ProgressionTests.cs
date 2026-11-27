@@ -262,11 +262,12 @@ public sealed class ProgressionTests : ServerFixture
             Assert.That(Gear.CanIssue(tpl), Is.False);
             var snapshot = Json.Serialize(Profile);
             Templates.Items.Remove(tpl);
-            var absent = new GearDefinitions(Templates, Globals, TradersDb);
+            var absent = new GearDefinitions(Templates, Globals, TradersDb, ItemHelper);
             Assert.That(absent.Eligible(tpl), Is.False);
+            Assert.That(absent.IsWeapon(tpl), Is.False);
             Assert.That(UnlockLedger.Read(Json.Deserialize<SptProfile>(snapshot)!).Templates, Does.Contain(tpl.ToString()));
             Templates.Items.Add(tpl, custom);
-            Assert.That(new GearDefinitions(Templates, Globals, TradersDb).Eligible(tpl), Is.True);
+            Assert.That(new GearDefinitions(Templates, Globals, TradersDb, ItemHelper).Eligible(tpl), Is.True);
         }
         finally { Templates.Items.Remove(tpl); }
     }

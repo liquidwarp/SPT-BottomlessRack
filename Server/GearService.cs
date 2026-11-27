@@ -79,7 +79,19 @@ public sealed class GearService(ProfileHelper profiles, GearDefinitions gear, Tr
         return Discovery.Descendants(inventoryItems, roots).Any(gear.Eligible) ? GearCategories.SaleWarning : null;
     }
 
-    private void StoreDiscovery(MongoId id, SptProfile profile, UnlockLedger previous, UnlockLedger current)
+    private UnlockLedger ReadLedger(MongoId id, SptProfile profile)
+    {
+        var ledger = UnlockLedger.Read(profile, out var restored);
+        if (restored)
+        {
+            // A receipt read can be the first access to an old profile after a server restart.
+            ledger = ledger.ReconcileWeaponParts(gear);
+            StoreLedger(id, profile, null, ledger);
+        }
+        return ledger;
+    }
+
+    private void StoreLedger(MongoId id, SptProfile profile, UnlockLedger? previous, UnlockLedger current)
     {
         if (ReferenceEquals(previous, current)) return;
         var gate = SaveLock(id);
@@ -93,7 +105,7 @@ public sealed class GearService(ProfileHelper profiles, GearDefinitions gear, Tr
         if (InRaid(id) && trader == null) return;
         var profile = profiles.GetFullProfile(id);
         if (profile?.CharacterData?.PmcData is not { Inventory.Items: not null } pmc) return;
-        var original = UnlockLedger.Read(profile);
+        var original = ReadLedger(id, profile);
         var ledger = trader.HasValue ? original : original.Discover(Discovery.Owned(pmc.Inventory), gear);
         if (checkTraders)
         {
@@ -104,7 +116,7 @@ public sealed class GearService(ProfileHelper profiles, GearDefinitions gear, Tr
                     catch (Exception ex) { log.Warning($"Unable to read gear offers from trader {pair.Key}: {ex.Message}"); }
                 }
         }
-        StoreDiscovery(id, profile, original, ledger);
+        StoreLedger(id, profile, original, ledger);
     }
 
     public void Restock(MongoId trader)
@@ -125,18 +137,21 @@ public sealed class GearService(ProfileHelper profiles, GearDefinitions gear, Tr
         if (result == ExitStatus.TRANSIT) return;
         ResetRaid(id);
         var profile = profiles.GetFullProfile(id);
-        var previous = UnlockLedger.Read(profile);
+        var previous = ReadLedger(id, profile);
         if (result is ExitStatus.SURVIVED or ExitStatus.RUNNER)
         {
             var next = previous.Discover(carried, gear);
-            StoreDiscovery(id, profile, previous, next);
+            StoreLedger(id, profile, previous, next);
         }
         Observe(id, true);
-        if (UnlockLedger.Read(profile).Templates.Count != previous.Templates.Count)
+        if (ReadLedger(id, profile).Templates.Count != previous.Templates.Count)
             await saves.SaveProfileAsync(id);
     }
 
-    public async ValueTask<Catalogue> Read(MongoId id, bool reconcile, CancellationToken ct)
+    public ValueTask<Catalogue> Read(MongoId id, bool reconcile, CancellationToken ct) =>
+        Read(id, reconcile, null, ct);
+
+    internal async ValueTask<Catalogue> Read(MongoId id, bool reconcile, int? knownRevision, CancellationToken ct)
     {
         var gate = Gate(id);
         await gate.WaitAsync(ct);
@@ -146,15 +161,15 @@ public sealed class GearService(ProfileHelper profiles, GearDefinitions gear, Tr
             // An open selector also notices direct stash grants made outside the inventory queue.
             Observe(id, checkTraders: reconcile);
             var profile = profiles.GetFullProfile(id);
-            var state = UnlockLedger.Read(profile);
-            if (reconcile)
+            var state = ReadLedger(id, profile);
+            if (reconcile && !knownRevision.HasValue)
             {
                 var updated = state.ReconcileWeaponParts(gear);
-                StoreDiscovery(id, profile, state, updated);
+                StoreLedger(id, profile, state, updated);
                 state = updated;
             }
             var catalogue = new Catalogue { Revision = state.Templates.Count, Receipt = state.Receipt };
-            if (!reconcile) return catalogue;
+            if (!reconcile || knownRevision == catalogue.Revision) return catalogue;
             catalogue.Templates = state.Templates.Where(t => MongoId.IsValidMongoId(t) && gear.CanIssue(t))
                 .Order(StringComparer.Ordinal).ToArray();
             foreach (var tpl in catalogue.Templates)
@@ -177,7 +192,7 @@ public sealed class GearService(ProfileHelper profiles, GearDefinitions gear, Tr
             if (InRaid(id)) throw new SpawnRejected("Gear can only be spawned out of raid.");
             if (saves.IsProfileInvalidOrUnloadable(id)) throw new SpawnRejected("Unable to save this profile.");
             var profile = profiles.GetFullProfile(id);
-            var ledger = UnlockLedger.Read(profile);
+            var ledger = ReadLedger(id, profile);
             var batch = SpawnBatch.Stage(request.Sequence, request.Lines, ledger, gear, pmc, id,
                 (tree, staged, scratch) => inventory.AddItemToStash(id,
                     new() { ItemWithModsToAdd = tree, FoundInRaid = false, UseSortingTable = false }, staged, scratch));

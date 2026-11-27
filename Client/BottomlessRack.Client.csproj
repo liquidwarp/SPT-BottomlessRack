@@ -11,7 +11,6 @@
         <Compile Include="..\Shared\*.cs" />
         <Reference Include="Comfort"><HintPath>$(SPTPath)\EscapeFromTarkov_Data\Managed\Comfort.dll</HintPath></Reference>
         <Reference Include="Unity.TextMeshPro"><HintPath>$(SPTPath)\EscapeFromTarkov_Data\Managed\Unity.TextMeshPro.dll</HintPath></Reference>
-        <Reference Include="UnityEngine.UIModule"><HintPath>$(SPTPath)\EscapeFromTarkov_Data\Managed\UnityEngine.UIModule.dll</HintPath></Reference>
         <Reference Include="0Harmony">
             <HintPath>$(SPTPath)\BepInEx\core\0Harmony.dll</HintPath>
         </Reference>
@@ -29,9 +28,6 @@
         </Reference>
         <Reference Include="spt-common">
             <HintPath>$(SPTPath)\BepInEx\plugins\spt\spt-common.dll</HintPath>
-        </Reference>
-        <Reference Include="spt-reflection">
-            <HintPath>$(SPTPath)\BepInEx\plugins\spt\spt-reflection.dll</HintPath>
         </Reference>
         <Reference Include="UnityEngine">
             <HintPath>$(SPTPath)\EscapeFromTarkov_Data\Managed\UnityEngine.dll</HintPath>

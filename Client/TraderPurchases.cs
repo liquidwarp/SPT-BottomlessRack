@@ -13,11 +13,12 @@ internal sealed class TraderPurchases
     private const string FenceId = "579dc571d53a0658a154fbec";
     private const string Label = "Unlocked";
     private static TraderPurchases _current;
+    internal static Trader CurrentTrader => _current?._trader;
     private readonly TraderDealScreen _screen;
     private readonly Trader _trader;
     private readonly ItemUiContext _ui;
-    private readonly Task _firstRead;
-    private readonly SelectorRefresh _watcher;
+    private Task _firstRead;
+    private SelectorRefresh _watcher;
     private Task _pendingExchange;
 
     private TraderPurchases(TraderDealScreen screen, Trader trader, ItemUiContext ui)
@@ -25,31 +26,31 @@ internal sealed class TraderPurchases
         _screen = screen;
         _trader = trader;
         _ui = ui;
-        _firstRead = GearClient.CurrentRead;
-        _watcher = SelectorRefresh.Watch(screen.gameObject, Refresh);
-        screen.OnTradingModeChanged += ModeChanged;
     }
 
-    // A trader change can reuse the screen and its item views.
-    private static void Prefix(Trader trader)
+    // Set the sale scope before EFT binds its first quote, including at Fence.
+    private static void Prefix(TraderDealScreen __instance, Trader trader, ItemUiContext itemUiContext, UIParent ___UI)
     {
         _current?.Close();
-        GearSales.CurrentTrader = GearClient.OutOfRaid ? trader : null;
+        if (!GearClient.OutOfRaid) return;
+        _current = new TraderPurchases(__instance, trader, itemUiContext);
+        ___UI.AddDisposable(_current.Close);
     }
 
-    private static void Postfix(TraderDealScreen __instance, Trader trader, InventoryController stashController,
-        ItemUiContext itemUiContext, UIParent ___UI)
+    private static void Postfix(InventoryController stashController)
     {
-        if (trader.Id == FenceId || !GearClient.OutOfRaid) return;
+        var shop = _current;
+        if (shop == null || shop._trader.Id == FenceId) return;
         GearClient.Enter(stashController);
-        var shop = _current = new TraderPurchases(__instance, trader, itemUiContext);
-        ___UI.AddDisposable(shop.Close);
+        shop._firstRead = GearClient.CurrentRead;
+        shop._watcher = SelectorRefresh.Watch(shop._screen.gameObject, shop.Refresh);
+        shop._screen.OnTradingModeChanged += shop.ModeChanged;
         shop.Refresh();
         if (shop.WaitingForCatalogue) GearClient.Run(shop.FinishFirstRead());
     }
 
     private static TraderPurchases BuyTab =>
-        _current != null && _current._screen.TradeMode == ETradeMode.Purchase ? _current : null;
+        _current?._firstRead != null && _current._screen.TradeMode == ETradeMode.Purchase ? _current : null;
 
     private static bool Unlocked(Item offered) =>
         offered != null && GearClient.Ready && GearClient.Unlocked.Contains(offered.TemplateId);
@@ -68,6 +69,7 @@ internal sealed class TraderPurchases
     {
         if (_current != this) return;
         _current = null;
+        if (_watcher == null) return;
         _screen.OnTradingModeChanged -= ModeChanged;
         _watcher.StopWatching();
         Repaint(closing: true);
