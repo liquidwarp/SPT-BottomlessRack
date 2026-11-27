@@ -76,6 +76,7 @@ $expectedMethods = [ordered]@{
         'System.Void SelectItem(EFT.InventoryLogic.Item)'
         'System.Threading.Tasks.Task`1<Comfort.Common.IResult> Purchase()'
     )
+    'AutoExchange' = @('System.Threading.Tasks.Task`1<System.Boolean> ExchangeCurrency(EFT.InventoryLogic.ECurrencyType,System.Int32)')
     'EFT.UI.WeaponModding.WeaponModdingScreen' = @(
         'System.Void Show(EFT.InventoryLogic.Item,EFT.InventoryLogic.InventoryController,EFT.InventoryLogic.CompoundItem[])'
     )
@@ -242,13 +243,6 @@ if ($ClientAssembly) {
             $construction.FullName -cnotcontains 'System.Void EFT.InventoryLogic.Slot::Add(EFT.InventoryLogic.Item)') {
             throw 'Weapon previews must bind the server recipe to detached EFT items and slots.'
         }
-        $exchange = $plugin.GetType("$namespace.TraderPurchases").NestedTypes | Where-Object Name -like '<PurchaseWithExchange>d__*'
-        $steps = ($exchange.Methods | Where-Object Name -ceq 'MoveNext').Body.Instructions.Operand | Where-Object {
-            $_ -is [Mono.Cecil.MethodReference] -and $_.Name -cin 'ApproveAutoExchange','StillSelected','ExchangeCurrency','Purchase'
-        }
-        if (($steps.Name -join ',') -cne 'ApproveAutoExchange,StillSelected,ExchangeCurrency,StillSelected,Purchase') {
-            throw 'A trader exchange must recheck the quoted selection before converting funds and before buying.'
-        }
         $hover = $plugin.GetType("$namespace.TraderPurchases/Hover")
         $afterHover = $hover.Methods | Where-Object Name -ceq 'Postfix'
         if (!$afterHover -or $hover.Methods.Name -ccontains 'Prefix' -or $afterHover.Body.Instructions.Operand.Name -ccontains 'Show') {
@@ -340,9 +334,14 @@ public static class CatalogueHttpFixture
 public static class PurchaseFixture
 {
     public static System.Threading.Tasks.Task<Comfort.Common.IResult> Reply;
-    public static bool Respond(ref System.Threading.Tasks.Task<Comfort.Common.IResult> __result)
+    public static bool Respond(bool __runOriginal, ref System.Threading.Tasks.Task<Comfort.Common.IResult> __result)
     {
-        __result = Reply;
+        if (__runOriginal) __result = Reply;
+        return false;
+    }
+    public static bool Exchange(bool __runOriginal, ref System.Threading.Tasks.Task<bool> __result)
+    {
+        if (__runOriginal) __result = System.Threading.Tasks.Task.FromResult(true);
         return false;
     }
 }
@@ -531,21 +530,42 @@ public static class PurchaseFixture
     $select = $client.GetType("$namespace.TraderPurchases+Select").GetMethod('Prefix', $flags)
     $validate = $client.GetType("$namespace.TraderPurchases+Validate").GetMethod('Prefix', $flags)
     $canDeal = { $validate.Invoke($null, [object[]]@($screen, $false, $null, $false)) }
-    $stillSelected = $shopType.GetMethod('StillSelected', $privateInstance)
+    $exchange = [Runtime.CompilerServices.RuntimeHelpers]::GetUninitializedObject([AutoExchange])
+    [EFT.UI.TraderDealScreen].GetField('_autoExchange', $privateInstance).SetValue($screen, $exchange)
+    function Assert-DealGuards($assortment, $converter, [bool]$allowed) {
+        $converted = $converter.ExchangeCurrency([EFT.InventoryLogic.ECurrencyType]::USD, 1).GetAwaiter().GetResult()
+        $result = $assortment.Purchase().GetAwaiter().GetResult()
+        if ($converted -ne $allowed -or [object]::ReferenceEquals($result, $denied) -ne $allowed) {
+            throw "Expected both calls to pass through = $allowed at line $($MyInvocation.ScriptLineNumber). Exchange returned $converted and purchase returned '$($result.Error)'."
+        }
+        if (!$allowed -and $result -isnot [Comfort.Common.FailedResult]) { throw 'Blocked purchase must return a failure.' }
+    }
     $medkitTemplate = [Runtime.CompilerServices.RuntimeHelpers]::GetUninitializedObject([EFT.InventoryLogic.ItemTemplate])
     $medkitTemplate._id = [EFT.MongoID]'000000000000000000000031'
     $medkit = [EFT.InventoryLogic.Item]::new('000000000000000000000032', $medkitTemplate)
     $previousShop = $activeShop.GetValue($null)
     try {
+        foreach ($patch in 'Exchange', 'Purchase') {
+            $null = $harmony.CreateClassProcessor($client.GetType("$namespace.TraderPurchases+$patch")).Patch()
+        }
+        # Last-priority fixtures stand in for EFT spending or buying if the mod allows the call.
+        $exchangeStub = [HarmonyLib.HarmonyMethod]::new([PurchaseFixture].GetMethod('Exchange'))
+        $exchangeStub.priority = [HarmonyLib.Priority]::Last
+        $null = $harmony.Patch([AutoExchange].GetMethod('ExchangeCurrency'), $exchangeStub)
+        $null = $harmony.Patch([EFT.Trading.Assortment].GetMethod('Purchase'), $stub)
+        [PurchaseFixture]::Reply = [Threading.Tasks.Task]::FromResult[Comfort.Common.IResult]($denied)
         $activeShop.SetValue($null, $shop)
         $assort._selectedItem = $medkit
         $revision.SetValue($null, -1)
         if (& $canDeal) { throw 'Deal accepted a purchase during the first catalogue read.' }
+        Assert-DealGuards $assort $exchange $false
         $revision.SetValue($null, 1)
         if (& $canDeal) { throw 'Deal accepted a second purchase while the catalogue was refreshing after a purchase.' }
+        Assert-DealGuards $assort $exchange $false
         $revision.SetValue($null, -1)
         $read.SetResult($false)
         if (-not (& $canDeal)) { throw 'A failed first read disabled a fresh priced purchase.' }
+        Assert-DealGuards $assort $exchange $true
         $revision.SetValue($null, 1)
         $assort._selectedItem = $pickerItem
         $viewItem.SetValue($stockView, $pickerItem)
@@ -566,23 +586,21 @@ public static class PurchaseFixture
             $viewItem.SetValue($stockView, $outputItem)
             $selection = [object[]]@($assort, $outputItem)
             $select.Invoke($null, $selection)
+            Assert-DealGuards $assort $exchange (!$blocked)
             if ($marked.Invoke($null, @($stockView, $assort)) -ne $blocked -or
                 ($null -eq $selection[1]) -ne $blocked -or (& $canDeal) -eq $blocked) {
                 throw "Trader price, selection or Deal disagrees for output $($outputItem.Id), payment $paymentTemplate."
             }
         }
-        $assort._currentQuantity = 2
-        $quote = [object[]]@($assort, $medkit, 2)
-        if (!$stillSelected.Invoke($shop, $quote)) { throw 'A current exchange quote was rejected.' }
-        $assort._currentQuantity = 3
-        if ($stillSelected.Invoke($shop, $quote)) { throw 'A quote survived a change to the purchase quantity.' }
-        $assort._currentQuantity = 2
-        $assort._selectedItem = $pickerItem
-        if ($stillSelected.Invoke($shop, $quote)) { throw 'A quote survived a change to the selected offer.' }
+        $assort._selectedItem = $null
+        Assert-DealGuards $assort $exchange $false
         $assort._selectedItem = $medkit
         $null = $unlocks.Add($medkit.StringTemplateId)
-        if ($stillSelected.Invoke($shop, $quote)) { throw 'A pending exchange could spend after the output unlocked.' }
+        Assert-DealGuards $assort $exchange $false
         $otherAssort = [Runtime.CompilerServices.RuntimeHelpers]::GetUninitializedObject([EFT.Trading.Assortment])
+        $otherAssort._selectedItem = $medkit
+        $otherExchange = [Runtime.CompilerServices.RuntimeHelpers]::GetUninitializedObject([AutoExchange])
+        Assert-DealGuards $otherAssort $otherExchange $true
         $otherSelection = [object[]]@($otherAssort, $medkit)
         $select.Invoke($null, $otherSelection)
         if ($marked.Invoke($null, @($stockView, $otherAssort)) -or $null -eq $otherSelection[1]) {
@@ -593,14 +611,22 @@ public static class PurchaseFixture
         $container.SetValue($stockView, $stockGrid)
         $screen.TradeMode = [EFT.UI.ETradeMode]::Sale
         if ($marked.Invoke($null, @($stockView, $assort)) -or -not (& $canDeal)) { throw 'The Sell tab was restricted.' }
+        Assert-DealGuards $assort $exchange $true
+        $screen.TradeMode = [EFT.UI.ETradeMode]::Purchase
+        $shopType.GetField('_catalogueRead', $privateInstance).SetValue($shop, $null) # Fence skips WatchRead.
+        Assert-DealGuards $assort $exchange $true
+        $shopType.GetField('_catalogueRead', $privateInstance).SetValue($shop, $read.Task)
+        $activeShop.SetValue($null, $null)
+        Assert-DealGuards $assort $exchange $true
     } finally {
+        $harmony.UnpatchSelf()
         $activeShop.SetValue($null, $previousShop)
         $null = $unlocks.Remove($pickerItem.StringTemplateId)
         $null = $unlocks.Remove($medkit.StringTemplateId)
         $revision.SetValue($null, $originalRevision)
     }
     Write-Output 'PASS  Trader costs, selection and Deal follow the offered template for cash and both barter directions.'
-    Write-Output 'PASS  Catalogue loading, a stale exchange quote, the stash and Sell use the intended purchase rules.'
+    Write-Output 'PASS  Currency conversion and purchase recheck the current offer only on the active non-Fence Buy tab.'
 
     $family = New-SaleTemplate '5448fe124bdc2da5018b4567' $null
     $partTemplate = New-SaleTemplate '000000000000000000000061' $family

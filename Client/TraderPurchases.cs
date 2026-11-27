@@ -16,13 +16,14 @@ internal sealed class TraderPurchases
     private static TraderPurchases _current;
     private static readonly AccessTools.FieldRef<TraderDealScreen, Trader> ScreenTrader =
         AccessTools.FieldRefAccess<TraderDealScreen, Trader>("_trader");
+    private static readonly AccessTools.FieldRef<TraderDealScreen, AutoExchange> ScreenExchange =
+        AccessTools.FieldRefAccess<TraderDealScreen, AutoExchange>("_autoExchange");
     internal static Trader CurrentTrader => _current?.Trader;
     private readonly TraderDealScreen _screen;
     private Trader Trader => ScreenTrader(_screen);
     private readonly ItemUiContext _ui;
     private Task _catalogueRead;
     private SelectorRefresh _watcher;
-    private Task _pendingExchange;
 
     private TraderPurchases(TraderDealScreen screen, ItemUiContext ui)
     {
@@ -54,7 +55,7 @@ internal sealed class TraderPurchases
 
     private static bool Unlocked(Item offered) => GearClient.Ready && GearClient.IsUnlocked(offered);
 
-    private bool WaitingForCatalogue => !_catalogueRead.IsCompleted;
+    private bool CanBuy(Item item) => item != null && _catalogueRead.IsCompleted && !Unlocked(item);
 
     private void WatchRead(Task read)
     {
@@ -73,9 +74,19 @@ internal sealed class TraderPurchases
     [HarmonyPatch(typeof(Assortment), nameof(Assortment.Purchase))]
     private static class Purchase
     {
-        // EFT can clear SelectedItem as soon as the last unit in stock is ordered.
-        private static void Prefix(Assortment __instance, out bool __state) =>
-            __state = GearSales.ContainsGear(__instance.SelectedItem);
+        private static bool Prefix(Assortment __instance, ref Task<IResult> __result, out bool __state)
+        {
+            var item = __instance.SelectedItem;
+            if (BuyTab is { } shop && ReferenceEquals(__instance, shop.Trader.CurrentAssortment) && !shop.CanBuy(item))
+            {
+                __state = false;
+                __result = Task.FromResult<IResult>(new FailedResult("This offer is unavailable."));
+                return false;
+            }
+            // EFT can clear SelectedItem as soon as the last unit in stock is ordered.
+            __state = GearSales.ContainsGear(item);
+            return true;
+        }
 
         private static void Postfix(bool __state, ref Task<IResult> __result)
         {
@@ -182,8 +193,7 @@ internal sealed class TraderPurchases
             ref AutoExchange.AutoExchangeData exchangeData, ref bool __result)
         {
             if (BuyTab is not { } shop || !ReferenceEquals(__instance, shop._screen)) return true;
-            var item = shop.Trader.CurrentAssortment?.SelectedItem;
-            if (item != null && !shop.WaitingForCatalogue && !Unlocked(item)) return true;
+            if (shop.CanBuy(shop.Trader.CurrentAssortment?.SelectedItem)) return true;
             withAutoExchange = false;
             exchangeData = default;
             __result = false;
@@ -191,43 +201,15 @@ internal sealed class TraderPurchases
         }
     }
 
-    [HarmonyPatch(typeof(TraderDealScreen), nameof(TraderDealScreen.OnDealButtonClickAsync))]
-    private static class ExchangeDeal
+    [HarmonyPatch(typeof(AutoExchange), nameof(AutoExchange.ExchangeCurrency))]
+    private static class Exchange
     {
-        private static bool Prefix(TraderDealScreen __instance, AutoExchange ____autoExchange, ref Task __result)
+        private static bool Prefix(AutoExchange __instance, ref Task<bool> __result)
         {
-            if (BuyTab is not { } shop || !ReferenceEquals(__instance, shop._screen)) return true;
-            if (shop._pendingExchange is { IsCompleted: false })
-            {
-                __result = shop._pendingExchange;
-                return false;
-            }
-            var assortment = shop.Trader.CurrentAssortment;
-            // A funded cash deal or ordinary barter submits synchronously after IsValidDeal.
-            if (assortment != null && assortment.IsValid) return true;
-            if (assortment == null || !__instance.IsValidDeal(out var needsExchange, out var quote))
-            {
-                __result = Task.CompletedTask;
-                return false;
-            }
-            if (!needsExchange) return true;
-            __result = shop._pendingExchange = shop.PurchaseWithExchange(assortment, ____autoExchange, quote);
+            if (BuyTab is not { } shop || !ReferenceEquals(__instance, ScreenExchange(shop._screen)) ||
+                shop.CanBuy(shop.Trader.CurrentAssortment?.SelectedItem)) return true;
+            __result = Task.FromResult(false);
             return false;
         }
-    }
-
-    private bool StillSelected(Assortment assortment, Item item, int quantity) =>
-        BuyTab == this && ReferenceEquals(assortment, Trader.CurrentAssortment) &&
-        item != null && ReferenceEquals(item, assortment.SelectedItem) && quantity == assortment.CurrentQuantity &&
-        !assortment.TransactionInProgress && !WaitingForCatalogue && !Unlocked(item);
-
-    private async Task PurchaseWithExchange(Assortment assortment, AutoExchange exchange, AutoExchange.AutoExchangeData quote)
-    {
-        var item = assortment.SelectedItem;
-        var quantity = assortment.CurrentQuantity;
-        if (!await exchange.ApproveAutoExchange(quote) || !StillSelected(assortment, item, quantity)) return;
-        if (!await exchange.ExchangeCurrency(quote.CurrencyToAutoExchange, quote.AmountToAutoExchange) ||
-            !StillSelected(assortment, item, quantity)) return;
-        if ((await assortment.Purchase()).Succeed && _current == this) _screen.TryShowWishlistPurchaseNotification(item);
     }
 }

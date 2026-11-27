@@ -77,8 +77,8 @@ The Buy tab uses the unlock status of the item the trader gives the player. Unlo
 | `TraderPurchases.Hover` | `TradingItemView.ShowTooltip` | Postfix | Shows **Free in Modding** for an attachment or **Free from inventory** for other gear in the price tooltip. |
 | `TraderPurchases.Select` | `Assortment.SelectItem` | Prefix | Clears the selection when the player chooses an unlocked offer, including through a shortcut. This also clears any previously staged deal. |
 | `TraderPurchases.Validate` | `TraderDealScreen.IsValidDeal` | Prefix | Disables Deal and automatic exchange while the relevant catalogue read is pending, the selection is empty, or the selected offer is unlocked. |
-| `TraderPurchases.ExchangeDeal` | `TraderDealScreen.OnDealButtonClickAsync` | Prefix | Coalesces repeated clicks during currency exchange and rechecks the offer, quantity, and unlock status after approval and again after conversion. |
-| `TraderPurchases.Purchase` | `Assortment.Purchase` | Prefix + postfix | Remembers whether the selected offer contains covered gear, including inside a bundle. A successful purchase triggers a fresh catalogue read so another deal sees the unlock. |
+| `TraderPurchases.Exchange` | `AutoExchange.ExchangeCurrency` | Prefix | Refuses conversion on the active non-Fence Buy tab if the catalogue read is pending or the selected offer is empty or unlocked. |
+| `TraderPurchases.Purchase` | `Assortment.Purchase` | Prefix + postfix | Applies the same check to the active Buy assortment before submission. Captures whether the selected offer contains covered gear, including inside a bundle, and refreshes the catalogue after a successful gear purchase. |
 
 ## Client PMC trader sales and flea listings
 
@@ -93,5 +93,5 @@ The restriction covers gear in the mod’s categories and containers holding it,
 
 ## Test-only hooks
 
-- `RequestHandler.GetJsonAsync` and `RequestHandler.PostJsonAsync` record catalogue requests and return fixture replies. A separate prefix on `Assortment.Purchase` supplies controlled purchase outcomes for refresh tests. [Contract tests](../Tests/Test-Contracts.ps1)
+- `RequestHandler.GetJsonAsync` and `RequestHandler.PostJsonAsync` record catalogue requests and return fixture replies. Prefixes on `Assortment.Purchase` and `AutoExchange.ExchangeCurrency` supply controlled outcomes when the trader guards allow the call. [Contract tests](../Tests/Test-Contracts.ps1)
 - `EquipmentBuildsScreen.TryApplyBuild` counts simulations. `EquipmentBuildsScreen.ApplyBuild` counts applications and skips the real submission so the fixture can exercise transfers in memory. [Equipment preset tests](../Tests/Test-EquipmentPresets.ps1)
