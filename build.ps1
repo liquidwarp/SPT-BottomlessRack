@@ -41,4 +41,6 @@ if ($Test) {
     $clientAssembly = Join-Path $PSScriptRoot "Client/bin/$Configuration/netstandard2.1/Liquidwarp-BottomlessRack.Client.dll"
     pwsh -NoProfile -File "$PSScriptRoot\Tests\Test-Contracts.ps1" -SPTPath $SPTPath -ClientAssembly $clientAssembly
     if ($LASTEXITCODE -ne 0) { throw "DLL contract checks failed ($LASTEXITCODE)" }
+    pwsh -NoProfile -File "$PSScriptRoot\Tests\Test-EquipmentPresets.ps1" -SPTPath $SPTPath -ClientAssembly $clientAssembly
+    if ($LASTEXITCODE -ne 0) { throw "Equipment preset checks failed ($LASTEXITCODE)" }
 }

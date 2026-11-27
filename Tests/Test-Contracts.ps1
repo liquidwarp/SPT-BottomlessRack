@@ -116,6 +116,9 @@ $expectedMethods = [ordered]@{
         'System.Void UpdateItemBody(EFT.InventoryLogic.Item)'
     )
     'EFT.UI.EquipmentBuildsScreen' = @(
+        'System.Void Show(EFT.IEftSession,EFT.InventoryLogic.BackEndInventoryController,EFT.HealthSystem.IHealthController,EFT.InventoryLogic.InventoryEquipment)'
+        'System.Void SetCurrentBuild(EFT.UI.Builds.EquipmentBuild)'
+        'System.Void UpdatePreview(System.Collections.Generic.IEnumerable`1<EFT.InventoryLogic.Item>)'
         'System.Void EquipBuild()'
         'System.Boolean TryApplyBuild(System.Collections.Generic.List`1<EFT.InventoryLogic.Item>&,Diz.LanguageExtensions.Error&)'
         'System.Void ApplyBuild(EFT.UI.Builds.EquipmentBuild)'
@@ -153,7 +156,7 @@ try {
         'EFT.UI.TraderDealScreen' = @('_autoExchange', '_traderGridView')
         'EFT.UI.ItemObserveScreen`2' = @('Item', 'RefreshingWeapon', '_manipulation')
         'EFT.UI.EditBuildScreen' = @('_itemBody', '_playerItems', '_acceptableWeaponBodies')
-        'EFT.UI.EquipmentBuildsScreen' = @('_currentBuild', '_realInventoryController', '_isApplying')
+        'EFT.UI.EquipmentBuildsScreen' = @('_currentBuild', '_realInventoryController', '_isApplying', '_equipmentContext', '_equipmentTabs')
         'EFT.UI.UIInputNode' = @('UI')
     }
     foreach ($entry in $fields.GetEnumerator()) {
@@ -169,6 +172,14 @@ try {
         if ($views -cnotcontains "EFT.UI.DragAndDrop.$view") { throw "Missing equipment picker layout $view" }
     }
     Write-Output 'PASS  The equipment picker has distinct icon and text row factories and native tag bindings.'
+
+    $selection = $module.GetType('EFT.UI.EquipmentBuildsScreen').Methods | Where-Object Name -ceq 'SetCurrentBuild'
+    $previewSteps = $selection.Body.Instructions.Operand | Where-Object {
+        $_ -is [Mono.Cecil.MethodReference] -and $_.Name -cin 'TryApplyBuild', 'set_Interactable', 'set_sprite', 'UpdatePreview'
+    }
+    if (($previewSteps.Name -join ',') -cne 'TryApplyBuild,set_Interactable,set_sprite,UpdatePreview') {
+        throw 'Preset selection no longer sets equip availability and the icon before drawing missing items.'
+    }
 
     $panelMethods = $module.GetType('EFT.UI.ItemSpecificationPanel').Methods
     $draw = $panelMethods | Where-Object Name -ceq 'method_1'
@@ -263,6 +274,8 @@ if ($ClientAssembly) {
         InstallPatch = @([EFT.InventoryLogic.DropdownManipulation], 'Select')
         EquippedModdingSlotPatch = @([EFT.UI.WeaponModding.ModdingScreenSlotView], 'Show')
         EquipmentPresets = @([EFT.UI.EquipmentBuildsScreen], 'EquipBuild')
+        'EquipmentPresets+Open' = @([EFT.UI.EquipmentBuildsScreen], 'Show')
+        'EquipmentPresets+Preview' = @([EFT.UI.EquipmentBuildsScreen], 'UpdatePreview')
         BuildAssembly = @([EFT.UI.EditBuildScreen], 'TryToAssembleBuild')
         UnlockedWeaponBodyPatch = @([EFT.UI.EditBuildScreen], 'CheckForVitalParts')
         TraderPurchases = @([EFT.UI.TraderDealScreen], 'Show')
@@ -679,6 +692,52 @@ if ($ClientAssembly) {
         $revision.SetValue($null, $originalRevision)
     }
     Write-Output 'PASS  The weapon action requests empty stash copies of the fitted, unlocked magazine according to its footprint.'
+
+    $preview = $client.GetType("$namespace.EquipmentPresets+Preview").GetMethod('Prefix', $flags)
+    $presetScreen = [Runtime.CompilerServices.RuntimeHelpers]::GetUninitializedObject([EFT.UI.EquipmentBuildsScreen])
+    $presetScreen._equipButton = [Runtime.CompilerServices.RuntimeHelpers]::GetUninitializedObject([EFT.UI.DefaultUIButton])
+    $presetScreen._equipBuildIcon = [Runtime.CompilerServices.RuntimeHelpers]::GetUninitializedObject([UnityEngine.UI.Image])
+    $unavailable = [EFT.UI.InteractableElement].GetField('_unavailable', 'Instance, Public, NonPublic')
+    $mosin = [EFT.InventoryLogic.WeaponTemplate]::new()
+    $mosin._id = [EFT.MongoID]'5bfd297f0db834001a669119'
+    [EFT.InventoryLogic.Item].GetField('<Template>k__BackingField').SetValue($weapon, $mosin)
+    $round.StackObjectsCount = 3
+    $mixed = [Collections.Generic.List[EFT.InventoryLogic.Item]]::new([EFT.InventoryLogic.Item[]]@($weapon, $round))
+    $rifleOnly = [Collections.Generic.List[EFT.InventoryLogic.Item]]::new([EFT.InventoryLogic.Item[]]@($weapon))
+    try {
+        $inventoryProperty.SetValue($null, $inventory)
+        $null = $unlocks.Add($weapon.StringTemplateId)
+        foreach ($case in @(
+            @('Standard', $mixed, 1, $inventory, $false, 1),
+            @('Custom', $mixed, 1, $inventory, $false, 1),
+            @('Standard', $rifleOnly, 1, $inventory, $false, 0),
+            @('Storage', $mixed, 1, $inventory, $false, 2),
+            @('Custom', $mixed, -1, $inventory, $false, 2),
+            @('Custom', $mixed, 1, $controller, $false, 2),
+            @('Custom', $mixed, 1, $inventory, $true, 2)
+        )) {
+            $kind, $shortages, $catalogueRevision, $owner, $disabled, $expected = $case
+            $build = [EFT.UI.Builds.EquipmentBuild]::new([EFT.MongoID]'000000000000000000000070', 'Sharpshooter', $kind)
+            $revision.SetValue($null, $catalogueRevision)
+            $unavailable.SetValue($presetScreen._equipButton, $disabled)
+            $values = [object[]]@($presetScreen, $build, $owner, $shortages)
+            $preview.Invoke($null, $values)
+            $visible = $values[3]
+            if ($visible.Count -ne $expected -or ($expected -eq 1 -and
+                (![object]::ReferenceEquals($visible[0], $round) -or $visible[0].StackObjectsCount -ne 3)) -or
+                ($expected -eq 2 -and ![object]::ReferenceEquals($visible, $shortages))) {
+                throw "Wrong missing items in the $kind preset preview (revision $catalogueRevision, disabled $disabled)."
+            }
+        }
+        if ($mixed.Count -ne 2 -or $rifleOnly.Count -ne 1 -or $mixed[0] -ne $weapon) {
+            throw 'Drawing a preset changed the inventory simulation used to supply gear.'
+        }
+    } finally {
+        $null = $unlocks.Remove($weapon.StringTemplateId)
+        $inventoryProperty.SetValue($null, $previousInventory)
+        $revision.SetValue($null, $originalRevision)
+    }
+    Write-Output 'PASS  Standard and custom previews hide the unlocked Mosin and keep the exact missing ammunition stack. Storage, catalogue and simulation guards pass through.'
 
     $hooks = @(
         $client.GetType("$namespace.WeaponModificationBonusPatch", $true).GetMethod('Postfix', $flags)

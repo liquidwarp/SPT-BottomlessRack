@@ -34,16 +34,48 @@ internal static class BuildAssembly
 
     internal static List<SpawnLine> Missing(EditBuildScreen screen, Weapon target)
     {
-        var required = new List<string>();
-        foreach (var item in screen.GetItemsInBuild())
-            if (item is Mod) required.Add(item.TemplateId);
-        var owned = new List<string>();
-        var seen = new HashSet<string>();
-        foreach (var item in WeaponAssembler.GetInstalledMods(target))
-            if (seen.Add(item.Id)) owned.Add(item.TemplateId);
+        if (Plan(screen) is not Weapon plan) return new();
+        var required = PartsInAssemblyOrder(plan);
+        foreach (var installed in PartsInAssemblyOrder(target)) required.Remove(installed);
+        if (required.Count == 0) return new();
+
+        var looseByTemplate = new Dictionary<string, Queue<Mod>>();
+        foreach (var template in required)
+            if (!looseByTemplate.ContainsKey(template)) looseByTemplate.Add(template, new Queue<Mod>());
         foreach (var item in screen.InventoryController.Inventory.GetPlayerItems(EPlayerItems.Stash))
-            if (item is Mod && screen.IsAcceptableItem(item) && seen.Add(item.Id)) owned.Add(item.TemplateId);
-        return GearProtocol.Missing(required, owned);
+            if (item is Mod mod && mod.Parent.Container.ParentItem.IsContainer &&
+                looseByTemplate.TryGetValue(mod.StringTemplateId, out var copies) && screen.IsAcceptableItem(mod))
+                copies.Enqueue(mod);
+
+        // EFT takes the first loose copy in stash order. Only that copy can supply its fitted children.
+        var selectedRoots = new List<string>();
+        for (var i = 0; i < required.Count; i++)
+        {
+            var copies = looseByTemplate[required[i]];
+            if (copies.Count == 0) continue;
+            selectedRoots.Add(required[i]);
+            UseFittedParts(copies.Dequeue(), required, i + 1);
+        }
+        return GearProtocol.Missing(required, selectedRoots);
+    }
+
+    private static List<string> PartsInAssemblyOrder(Weapon weapon)
+    {
+        var slots = new Stack<Slot>(weapon.Slots);
+        foreach (var chamber in weapon.Chambers) slots.Push(chamber);
+        return WeaponAssembler.ConvertSlotsLayerByLayer(slots, (mod, _) => mod.StringTemplateId);
+    }
+
+    private static void UseFittedParts(Mod parent, List<string> required, int startIndex)
+    {
+        foreach (var slot in parent.Slots)
+        {
+            if (slot.ContainedItem is not Mod child) continue;
+            var index = required.IndexOf(child.StringTemplateId, startIndex);
+            if (index < 0) continue;
+            required.RemoveAt(index);
+            UseFittedParts(child, required, startIndex);
+        }
     }
 
     private static bool Prefix(EditBuildScreen __instance, Item[] ____acceptableWeaponBodies, UIParent ___UI)

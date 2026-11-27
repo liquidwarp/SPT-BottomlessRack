@@ -5,18 +5,14 @@ namespace Liquidwarp.BottomlessRack.Tests;
 public sealed class ClientDecisionTests
 {
     [Test]
-    public void LoadoutIssuesMissingWeaponsBeforeRecheckingLoosePartsAndLockedItems()
+    public void LoadoutRequestsBareWeaponsAndAllUnlockedShortagesInOneBatch()
     {
-        HashSet<string> unlocked = ["weapon", "factory part", "suppressor", "magazine"];
-        var first = GearProtocol.PresetSupplies(
-            [("factory part", 1, false), ("weapon", 1, true), ("suppressor", 1, false), ("locked", 1, false)], unlocked);
-        Assert.That(first.Select(line => (line.TemplateId, line.Quantity)), Is.EqualTo(new[] { ("weapon", 1) }));
-
-        // EFT matched the factory part and one owned magazine when it simulated the loadout again.
-        var second = GearProtocol.PresetSupplies(
-            [("suppressor", 1, false), ("magazine", 2, false), ("locked", 1, false), ("magazine", 1, false)], unlocked);
-        Assert.That(second.Select(line => (line.TemplateId, line.Quantity)),
-            Is.EqualTo(new[] { ("magazine", 3), ("suppressor", 1) }));
+        HashSet<string> unlocked = ["weapon", "magazine", "forestock"];
+        var batch = GearProtocol.PresetSupplies(
+            [("weapon", 1, true), ("magazine", 2, false), ("locked", 1, false), ("magazine", 1, false),
+                ("forestock", 1, false), ("weapon", 1, true)], unlocked);
+        Assert.That(batch.Select(line => (line.TemplateId, line.Quantity, line.BareWeapon)),
+            Is.EqualTo(new[] { ("forestock", 1, false), ("magazine", 3, false), ("weapon", 2, true) }));
         Assert.That(GearProtocol.PresetSupplies([("locked", 1, false)], unlocked), Is.Empty);
         Assert.That(GearProtocol.PresetSupplies([], unlocked), Is.Empty);
     }
@@ -79,5 +75,7 @@ public sealed class ClientDecisionTests
         var different = Receipt(2);
         different.Lines = [new() { TemplateId = "other", Quantity = 1 }];
         Assert.ThrowsAsync<SpawnNotice>(async () => await session.Issue(Lines, (_, _) => Task.FromResult(""), () => Task.FromResult(different)));
+        var bareReceiver = new SpawnLine[] { new() { TemplateId = "part", Quantity = 1, BareWeapon = true } };
+        Assert.ThrowsAsync<SpawnNotice>(async () => await session.Issue(bareReceiver, (_, _) => Task.FromResult(""), () => Task.FromResult(Receipt(3))));
     }
 }

@@ -39,6 +39,27 @@ public sealed class ProgressionTests : ServerFixture
     }
 
     [Test]
+    public async Task ShotgunnerSuppliesABareMossbergAndPreservesTheFactoryBuildAndReceipt()
+    {
+        const string mossberg = "5e870397991fd70db46995c8", speedFeed = "5e87076ce2db31558c75a11d", moe = "5eea21647547d6330471b3c9";
+        Award(mossberg, moe);
+        await Issue(1, (mossberg, 1));
+        var original = Items.Single(i => i.Template == mossberg);
+        var originalGuard = Items.Single(i => i.Template == speedFeed);
+        var bare = new SpawnLine { TemplateId = mossberg, Quantity = 1, BareWeapon = true };
+        var request = new SpawnRequest { Sequence = 2, Lines = [bare, new() { TemplateId = moe, Quantity = 1 }] };
+        var result = await Issue(request);
+        Assert.That(result.Warnings, Is.Empty);
+        var added = result.ProfileChanges[Session].Items!.NewItems!;
+        Assert.That(added.Select(i => i.Template.ToString()), Is.EquivalentTo(new[] { mossberg, moe }));
+        Assert.That(added.All(i => i.ParentId == Inventory.Stash!.Value.ToString()), Is.True);
+        Assert.That(originalGuard.ParentId, Is.EqualTo(original.Id.ToString()));
+        Assert.That((await Issue(request)).ProfileChanges[Session].Items!.NewItems, Is.Empty);
+        Assert.That((await Issue(2, (mossberg, 1), (moe, 1))).Warnings, Is.Not.Empty);
+        Assert.That((await Issue(new SpawnRequest { Sequence = 3, Lines = [new() { TemplateId = moe, Quantity = 1, BareWeapon = true }] })).Warnings, Is.Not.Empty);
+    }
+
+    [Test]
     public async Task RejectsLockedInvalidOrInRaidWithoutConsumingSequence()
     {
         Award(Magazine);

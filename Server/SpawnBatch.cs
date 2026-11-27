@@ -18,7 +18,7 @@ public sealed record SpawnBatch(SpawnReceipt Receipt, List<Item> Additions)
     {
         if (sequence < 1 || lines is not { Length: > 0 })
             throw new SpawnRejected("Invalid spawn request.");
-        var quantities = new SortedDictionary<string, int>(StringComparer.Ordinal);
+        var requests = new SortedDictionary<string, SpawnLine>(StringComparer.Ordinal);
         int total = 0;
         foreach (var line in lines)
         {
@@ -26,15 +26,20 @@ public sealed record SpawnBatch(SpawnReceipt Receipt, List<Item> Additions)
                 line.Quantity > int.MaxValue - total)
                 throw new SpawnRejected("Invalid template or spawn quantity.");
             total += line.Quantity;
-            quantities[line.TemplateId] = quantities.GetValueOrDefault(line.TemplateId) + line.Quantity;
+            if (!requests.TryGetValue(line.TemplateId, out var entry))
+                requests.Add(line.TemplateId, entry = new() { TemplateId = line.TemplateId, BareWeapon = line.BareWeapon });
+            if (entry.BareWeapon != line.BareWeapon)
+                throw new SpawnRejected("Conflicting weapon builds in spawn request.");
+            entry.Quantity += line.Quantity;
         }
-        var canonical = quantities.Select(p => new SpawnLine { TemplateId = p.Key, Quantity = p.Value }).ToArray();
-        if (sequence == ledger.Receipt.Sequence && canonical.Select(l => (l.TemplateId, l.Quantity))
-            .SequenceEqual(ledger.Receipt.Lines.Select(l => (l.TemplateId, l.Quantity))))
+        var canonical = requests.Values.ToArray();
+        if (sequence == ledger.Receipt.Sequence && canonical.Select(l => (l.TemplateId, l.Quantity, l.BareWeapon))
+            .SequenceEqual(ledger.Receipt.Lines.Select(l => (l.TemplateId, l.Quantity, l.BareWeapon))))
             return new(ledger.Receipt, []);
         if (sequence - 1 != ledger.Receipt.Sequence)
             throw new SpawnRejected("Gear requests are out of sync. Check your stash before trying again.");
-        if (canonical.Any(l => !ledger.Templates.Contains(l.TemplateId) || !gear.CanIssue(l.TemplateId)))
+        if (canonical.Any(l => !ledger.Templates.Contains(l.TemplateId) || !gear.CanIssue(l.TemplateId) ||
+            (l.BareWeapon && !gear.IsWeapon(l.TemplateId))))
             throw new SpawnRejected("This gear is locked, missing, or has no usable standard build.");
 
         if (pmc.Inventory?.Items == null || !pmc.Inventory.Stash.HasValue)
@@ -50,7 +55,7 @@ public sealed record SpawnBatch(SpawnReceipt Receipt, List<Item> Additions)
         foreach (var line in canonical)
             for (int n = 0; n < line.Quantity; n++)
             {
-                var tree = gear.Create(line.TemplateId);
+                var tree = gear.Create(line.TemplateId, line.BareWeapon);
                 var expectedCount = additions.Count + tree.Count;
                 place(tree, staged, scratch);
                 if (scratch.Warnings is { Count: > 0 } || additions.Count != expectedCount)

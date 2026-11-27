@@ -1,7 +1,10 @@
+using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using EFT;
 using EFT.Builds;
+using EFT.HealthSystem;
 using EFT.InventoryLogic;
 using EFT.UI;
 using EFT.UI.Builds;
@@ -16,6 +19,65 @@ internal static class EquipmentPresets
         AccessTools.FieldRefAccess<EquipmentBuildsScreen, EquipmentBuild>("_currentBuild");
     private static bool _equipping;
 
+    private static bool CatalogueReady(InventoryController inventory) =>
+        GearClient.Ready && ReferenceEquals(GearClient.Inventory, inventory);
+
+    private static bool IsUnlocked(Item item) => GearClient.Unlocked.Contains(item.StringTemplateId);
+
+    [HarmonyPatch(typeof(EquipmentBuildsScreen), nameof(EquipmentBuildsScreen.Show),
+        typeof(IEftSession), typeof(BackEndInventoryController), typeof(IHealthController), typeof(InventoryEquipment))]
+    private static class Open
+    {
+        private static readonly AccessTools.FieldRef<EquipmentBuildsScreen, EquipmentBuildItemContext<InventoryEquipment>> Context =
+            AccessTools.FieldRefAccess<EquipmentBuildsScreen, EquipmentBuildItemContext<InventoryEquipment>>("_equipmentContext");
+
+        private static void Prefix(BackEndInventoryController inventoryController) => GearClient.Enter(inventoryController);
+
+        private static void Postfix(EquipmentBuildsScreen __instance, BackEndInventoryController inventoryController,
+            TabGroup ____equipmentTabs, UIParent ___UI)
+        {
+            if (!GearClient.OutOfRaid) return;
+            void Refresh()
+            {
+                if (__instance == null || !__instance.isActiveAndEnabled || !CatalogueReady(inventoryController)) return;
+                var build = CurrentBuild(__instance);
+                var context = Context(__instance);
+                if (build == null || build.BuildType == EEquipmentBuildType.Storage || !__instance._equipButton.Interactable ||
+                    context == null || context._missingItems.Count == 0) return;
+
+                foreach (var item in build.Equipment.GetAllItems())
+                {
+                    if (!context._missingItems.ContainsKey(item.Id) || !IsUnlocked(item)) continue;
+                    var containersSelected = ____equipmentTabs._selectedTab == __instance._containersTab;
+                    __instance.SetCurrentBuild(build);
+                    if (containersSelected) ____equipmentTabs.SelectionChangedHandler(__instance._containersTab, true);
+                    break;
+                }
+            }
+
+            GearClient.Updated += Refresh;
+            ___UI.AddDisposable(() => GearClient.Updated -= Refresh);
+        }
+    }
+
+    [HarmonyPatch(typeof(EquipmentBuildsScreen), nameof(EquipmentBuildsScreen.UpdatePreview))]
+    private static class Preview
+    {
+        private static void Prefix(EquipmentBuildsScreen __instance, EquipmentBuild ____currentBuild,
+            BackEndInventoryController ____realInventoryController, ref IEnumerable<Item> notFoundItems)
+        {
+            // SetCurrentBuild has already set the Equip icon and disabled the button on simulation errors.
+            if (____currentBuild.BuildType == EEquipmentBuildType.Storage || !CatalogueReady(____realInventoryController) ||
+                !__instance._equipButton.Interactable || notFoundItems is ICollection<Item> { Count: 0 }) return;
+
+            var remaining = new List<Item>();
+            foreach (var item in notFoundItems)
+                if (!IsUnlocked(item)) remaining.Add(item);
+            notFoundItems = remaining;
+            if (remaining.Count == 0) __instance._equipBuildIcon.sprite = __instance._canEquip;
+        }
+    }
+
     private static bool Prefix(EquipmentBuildsScreen __instance, EquipmentBuild ____currentBuild,
         BackEndInventoryController ____realInventoryController, bool ____isApplying, UIParent ___UI)
     {
@@ -24,15 +86,14 @@ internal static class EquipmentPresets
             return true;
         if (_equipping || ____isApplying) return false;
         if (!__instance.TryApplyBuild(out var missing, out _)) return false;
-        var ready = GearClient.Ready && ReferenceEquals(GearClient.Inventory, ____realInventoryController);
-        if (missing.Count == 0 || (ready && !missing.Exists(item => GearClient.Unlocked.Contains(item.TemplateId))))
+        if (missing.Count == 0 || (CatalogueReady(____realInventoryController) && !missing.Exists(IsUnlocked)))
             return true;
         GearClient.Run(Equip(__instance, ____currentBuild, ____realInventoryController, ___UI.CancellationToken));
         return false;
     }
 
     private static async Task Equip(EquipmentBuildsScreen screen, EquipmentBuild build, InventoryController inventory,
-        CancellationToken lifetime)
+        CancellationToken lifetime, bool allowPartial = false)
     {
         _equipping = true;
         try
@@ -40,39 +101,68 @@ internal static class EquipmentPresets
             bool Current() => !lifetime.IsCancellationRequested && screen != null && screen.isActiveAndEnabled &&
                 ReferenceEquals(build, CurrentBuild(screen)) && GearClient.OutOfRaid;
 
-            // TryApplyBuild simulates the whole loadout, including nested items, partial stacks,
-            // the worn equipment and the sorting table. Selecting or previewing a preset only simulates.
             bool catalogueReady = await GearClient.EnsureCatalogue(inventory);
-            var issued = new HashSet<string>();
-            while (Current() && screen.TryApplyBuild(out var missing, out _))
+            if (!Current() || !screen.TryApplyBuild(out var missing, out _)) return;
+            if (missing.Count == 0)
             {
-                if (missing.Count == 0)
+                screen.ApplyBuild(build);
+                return;
+            }
+            if (!catalogueReady)
+            {
+                GearClient.Warn("Could not load unlocked gear. Try equipping the preset again.");
+                return;
+            }
+
+            void OfferPurchase(List<Item> shortages, Action equip)
+            {
+                var toBuy = GroupForPurchase(shortages);
+                ItemUiContext.Instance.ShowMissingItemsWindow(toBuy, null, false,
+                    () => { if (Current() && !_equipping) equip(); },
+                    _ => { if (Current()) screen.FindPresetParts(toBuy); });
+            }
+
+            if (!allowPartial)
+            {
+                var locked = missing.FindAll(item => !IsUnlocked(item));
+                if (locked.Count > 0)
                 {
-                    screen.ApplyBuild(build);
+                    // Shopping or cancelling should leave no partly assembled gear in the stash.
+                    OfferPurchase(locked, () => GearClient.Run(Equip(screen, build, inventory, lifetime, true)));
                     return;
                 }
-                if (!catalogueReady)
+            }
+            var supplies = allowPartial ? PresetItems.Supplies(build.Equipment, missing) : missing;
+            var batch = GearProtocol.PresetSupplies(Shortages(supplies), GearClient.Unlocked);
+            if (batch.Count == 0)
+            {
+                screen.ApplyBuild(build);
+                return;
+            }
+            var roots = await GearClient.Spawn(batch);
+            if (roots == null || !Current()) return;
+            var assigned = PresetItems.AssignBodies(supplies, roots);
+
+            void Finish(bool partial)
+            {
+                PresetItems.NewBodies = assigned;
+                try
                 {
-                    GearClient.Warn("Could not load unlocked gear. Try equipping the preset again.");
-                    return;
-                }
-                var batch = GearProtocol.PresetSupplies(Shortages(missing), GearClient.Unlocked);
-                if (batch.Count == 0)
-                {
-                    var toBuy = GroupForPurchase(missing);
-                    ItemUiContext.Instance.ShowMissingItemsWindow(toBuy, null, false,
-                        () => { if (Current()) screen.ApplyBuild(build); },
-                        _ => { if (Current()) screen.FindPresetParts(toBuy); });
-                    return;
-                }
-                foreach (var line in batch)
-                    if (!issued.Add(line.TemplateId))
+                    if (!screen.TryApplyBuild(out var remaining, out _)) return;
+                    var outstanding = partial ? PresetItems.Supplies(build.Equipment, remaining) : remaining;
+                    if (outstanding.Exists(IsUnlocked))
                     {
                         GearClient.Warn("EFT could not use the issued gear for this preset. Check your stash.");
                         return;
                     }
-                if (await GearClient.Spawn(batch) == null) return;
+                    if (remaining.Count > 0 && !partial)
+                        OfferPurchase(remaining, () => Finish(true));
+                    else
+                        screen.ApplyBuild(build);
+                }
+                finally { PresetItems.NewBodies = null; }
             }
+            Finish(allowPartial);
         }
         finally { _equipping = false; }
     }

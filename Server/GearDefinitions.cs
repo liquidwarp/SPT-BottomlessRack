@@ -76,10 +76,10 @@ public sealed class GearDefinitions(TemplateTable templates, GlobalTable globals
         return inserts == null ? parts : [.. parts, .. inserts];
     }
 
-    public List<Item> Create(MongoId id)
+    public List<Item> Create(MongoId id, bool bareWeapon = false)
     {
         var result = new List<Item>();
-        foreach (var part in Recipe(id))
+        foreach (var part in bareWeapon ? WithIntegralInserts([new(id, -1, null)]) : Recipe(id))
         {
             var props = templates.Items[part.Template].Properties;
             var upd = new Upd { StackObjectsCount = 1, SpawnedInSession = false };

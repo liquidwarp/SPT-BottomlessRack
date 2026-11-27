@@ -15,24 +15,20 @@ public static class GearProtocol
     public const string Receipt = "/bottomlessrack/receipt";
     public const string Action = "BottomlessRackSpawn";
 
-    // A newly issued weapon includes its factory parts. Let EFT match those against the
-    // preset before requesting loose gear from the next inventory simulation.
+    // EFT simulates missing items as empty bodies. Supply the same bodies and loose shortages
+    // together so assembly never has to strip factory furniture from a new weapon.
     public static List<SpawnLine> PresetSupplies(IEnumerable<(string TemplateId, int Quantity, bool Weapon)> missing,
         ISet<string> unlocked)
     {
-        var weapons = new SortedDictionary<string, int>(StringComparer.Ordinal);
-        var gear = new SortedDictionary<string, int>(StringComparer.Ordinal);
+        var lines = new SortedDictionary<string, SpawnLine>(StringComparer.Ordinal);
         foreach (var (id, quantity, weapon) in missing)
         {
             if (!unlocked.Contains(id) || quantity <= 0) continue;
-            var counts = weapon ? weapons : gear;
-            counts.TryGetValue(id, out var count);
-            counts[id] = checked(count + quantity);
+            if (!lines.TryGetValue(id, out var line))
+                lines.Add(id, line = new SpawnLine { TemplateId = id, BareWeapon = weapon });
+            line.Quantity = checked(line.Quantity + quantity);
         }
-        var batch = new List<SpawnLine>();
-        foreach (var pair in weapons.Count > 0 ? weapons : gear)
-            batch.Add(new SpawnLine { TemplateId = pair.Key, Quantity = pair.Value });
-        return batch;
+        return new List<SpawnLine>(lines.Values);
     }
 
     // Subtract physical instances one at a time. Build plans may use a template twice.
@@ -60,6 +56,7 @@ public sealed class SpawnLine
 {
     [WireName("templateId")] public string TemplateId { get; set; } = "";
     [WireName("quantity")] public int Quantity { get; set; }
+    [WireName("bareWeapon")] public bool BareWeapon { get; set; }
 }
 
 public sealed class SpawnReceipt

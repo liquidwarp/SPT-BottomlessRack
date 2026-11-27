@@ -159,9 +159,11 @@ public abstract class ServerFixture
     protected void Award(params string[] templates) =>
         UnlockLedger.Read(Profile).Discover(templates.Select(t => new MongoId(t)), Gear).Write(Profile);
 
-    protected async Task<ItemEventRouterResponse> Issue(long seq, params (string Template, int Quantity)[] lines)
+    protected Task<ItemEventRouterResponse> Issue(long seq, params (string Template, int Quantity)[] lines) =>
+        Issue(new SpawnRequest { Sequence = seq, Lines = lines.Select(p => new SpawnLine { TemplateId = p.Template, Quantity = p.Quantity }).ToArray() });
+
+    protected async Task<ItemEventRouterResponse> Issue(SpawnRequest request)
     {
-        var request = new SpawnRequest { Sequence = seq, Lines = lines.Select(p => new SpawnLine { TemplateId = p.Template, Quantity = p.Quantity }).ToArray() };
         var output = new ItemEventRouterResponse { Warnings = [], ProfileChanges = new() { [Session] = new() { Items = new() { NewItems = [] } } } };
         return await new SpawnRouter(Service).HandleItemEvent(GearProtocol.Action, Pmc, request, Session, output);
     }

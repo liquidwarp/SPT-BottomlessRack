@@ -53,7 +53,8 @@ public sealed class SpawnSession
         if (requested.Count != receipt.Length) return false;
         // UI requests contain one sorted line per template, just like the server receipt.
         for (var i = 0; i < receipt.Length; i++)
-            if (requested[i].TemplateId != receipt[i].TemplateId || requested[i].Quantity != receipt[i].Quantity) return false;
+            if (requested[i].TemplateId != receipt[i].TemplateId || requested[i].Quantity != receipt[i].Quantity ||
+                requested[i].BareWeapon != receipt[i].BareWeapon) return false;
         return true;
     }
 }
