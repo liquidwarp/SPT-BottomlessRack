@@ -94,7 +94,7 @@ The trader tooltip shows **Free in Modding** for an attachment and **Free from i
 
 ## PMC sale restrictions
 
-Block PMC sales of every template covered by `GearDefinitions.Eligible`. A looted rifle, a purchased rifle and a free copy all have the same sale restriction, including copies already in an existing stash. The rule applies before the first unlock and also covers a receiver with no issuable build. Classify by template regardless of condition or Found in Raid status, without tagging or tracking individual copies. [Gear eligibility](Server/GearDefinitions.cs)
+Block PMC sales of every template covered by `GearDefinitions.Eligible`. A looted rifle, a purchased rifle and a free copy all have the same sale restriction, including copies already in an existing stash. The rule applies before the first unlock and also covers a receiver with no issuable build. Classify by template regardless of condition or Found in Raid status, without tagging or tracking individual copies. [Gear eligibility](../Server/GearDefinitions.cs)
 
 This covers firearms, melee weapons, attachments, magazines, armor, removable plates and wearable equipment, including modded items in those families. The existing exclusions for ammunition, grenades, built-in inserts and quest-only items still apply. Loose rounds, medicine and barter goods use each market’s ordinary sale rules.
 
