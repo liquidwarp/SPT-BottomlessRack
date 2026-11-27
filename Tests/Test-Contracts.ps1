@@ -170,6 +170,15 @@ try {
     }
     Write-Output 'PASS  The equipment picker has distinct icon and text row factories and native tag bindings.'
 
+    $panelMethods = $module.GetType('EFT.UI.ItemSpecificationPanel').Methods
+    $draw = $panelMethods | Where-Object Name -ceq 'method_1'
+    if ($draw.Body.Instructions.Operand.Name -cnotcontains 'SetDescriptionText') { throw 'The inspect panel description hook moved.' }
+    foreach ($method in $panelMethods | Where-Object Name -cin 'Show', 'OnItemExaminedEvent') {
+        if ($method.Body.Instructions.Operand.FullName -cnotcontains $draw.FullName) {
+            throw "Inspect descriptions no longer refresh through $($method.Name)."
+        }
+    }
+
     $modification = $module.GetType('EFT.EBonusType').Fields | Where-Object Name -CEQ 'UnlockWeaponModification'
     $contextMenu = $module.GetType('EFT.UI.ItemContextInteractionsSwitcher').Methods | Where-Object Name -CEQ 'IsInteractive'
     $taskBar = $module.GetType('EFT.UI.MenuTaskBar').Methods | Where-Object Name -CEQ 'InitBonusController'
@@ -210,7 +219,7 @@ if ($ClientAssembly) {
     $plugin = [Mono.Cecil.ModuleDefinition]::ReadModule($client.Location)
     try {
         if ($null -ne $plugin.GetType("$namespace.CataloguePanel")) { throw 'The client still includes the standalone stash menu.' }
-        foreach ($name in 'StashPatch', 'ModdingScreenPatch', 'BuildScreenPatch', 'TraderPurchases') {
+        foreach ($name in 'MenuCataloguePatch', 'StashPatch', 'ModdingScreenPatch', 'BuildScreenPatch', 'TraderPurchases') {
             $entry = $plugin.GetType("$namespace.$name").Methods | Where-Object Name -CEQ 'Postfix'
             $calls = @($entry.Body.Instructions.Operand | Where-Object { $_ -is [Mono.Cecil.MethodReference] })
             if ($calls.FullName -cnotcontains "System.Void $namespace.GearClient::Enter(EFT.InventoryLogic.InventoryController)") {
@@ -581,6 +590,40 @@ if ($ClientAssembly) {
         $activeBuyer.SetValue($null, $null)
     }
     Write-Output 'PASS  PMC quotes and flea offers check live contents and template exclusions. Scav Fence quotes pass through.'
+
+    $inspect = $client.GetType("$namespace.InspectDescription").GetMethod('Postfix', $flags)
+    $updated = $gear.GetField('Updated', $flags)
+    $panel = [Runtime.CompilerServices.RuntimeHelpers]::GetUninitializedObject([EFT.UI.ItemSpecificationPanel])
+    $labels = [Runtime.CompilerServices.RuntimeHelpers]::GetUninitializedObject([EFT.UI.ItemInfoWindowLabels])
+    $description = [Runtime.CompilerServices.RuntimeHelpers]::GetUninitializedObject([CustomTextMeshProUGUI])
+    [EFT.UI.ItemInfoWindowLabels].GetField('_description').SetValue($labels, $description)
+    [EFT.UI.ItemSpecificationPanel].GetField('_itemLabels').SetValue($panel, $labels)
+    $ui = [EFT.UI.UIParent]::new()
+    $original = "Total: 1 ₽`n<color=green>Valeur</color>`n`n説明"
+    try {
+        $description.text = $original
+        $inspect.Invoke($null, @($panel, $round, $ui))
+        if ($null -ne $updated.GetValue($null)) { throw 'Inspecting ammunition requested catalogue updates.' }
+        $inspect.Invoke($null, @($panel, $part, $ui))
+        if ($description.text -cne $original) { throw 'A locked item received an inspect marker.' }
+        $null = $unlocks.Add($part.StringTemplateId)
+        $updated.GetValue($null).Invoke()
+        $updated.GetValue($null).Invoke()
+        if ($description.text -cne "UNLOCKED`n`n$original") { throw 'An unlock update duplicated the marker or changed the description.' }
+        $ui.Dispose()
+        if ($null -ne $updated.GetValue($null)) { throw 'A closed inspect window still receives updates.' }
+
+        [Comfort.Common.Singleton[EFT.AbstractGame]]::Instance = [Runtime.CompilerServices.RuntimeHelpers]::GetUninitializedObject([EFT.LocalGame])
+        $copy = [EFT.InventoryLogic.Item]::new('000000000000000000000067', $partTemplate)
+        $description.text = $original
+        $inspect.Invoke($null, @($panel, $copy, $ui))
+        if ($description.text -cne "UNLOCKED`n`n$original") { throw 'A different copy of unlocked loot lost its marker in raid.' }
+    } finally {
+        $ui.Dispose()
+        $null = $unlocks.Remove($part.StringTemplateId)
+        [Comfort.Common.Singleton[EFT.AbstractGame]]::Instance = $null
+    }
+    Write-Output 'PASS  Inspect descriptions preserve localized text across unlock updates, window reuse, and in-raid inspection.'
 
     $spares = $client.GetType("$namespace.SpareMagazines", $true)
     $binding = $spares.GetCustomAttributes([HarmonyLib.HarmonyPatch], $false)[0].info

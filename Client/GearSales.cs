@@ -17,6 +17,8 @@ internal static class GearSales
 
     private static readonly ConditionalWeakTable<ItemTemplate, StrongBox<bool>> Covered = new();
 
+    internal static bool CoversTemplate(ItemTemplate template) => Covered.GetValue(template, Classify).Value;
+
     private static StrongBox<bool> Classify(ItemTemplate template)
     {
         var included = false;
@@ -35,10 +37,10 @@ internal static class GearSales
     private static bool ContainsGear(Item item)
     {
         if (item == null) return false;
-        if (Covered.GetValue(item.Template, Classify).Value) return true;
+        if (CoversTemplate(item.Template)) return true;
         if (item is ContainerCollection collection)
             foreach (var child in collection.GetAllItemsFromCollection())
-                if (Covered.GetValue(child.Template, Classify).Value) return true;
+                if (CoversTemplate(child.Template)) return true;
         return false;
     }
 

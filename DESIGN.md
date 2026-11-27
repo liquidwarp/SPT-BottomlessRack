@@ -22,6 +22,7 @@ A purchase from Fence or the flea qualifies when the gear reaches the PMC. The s
 
 | Where | Player interaction |
 | --- | --- |
+| Inspect window | If the examined item’s template is in the PMC’s catalogue, its description begins with **UNLOCKED** followed by a blank line. This also applies to loot inspected during a PMC or Scav raid. |
 | Equipment slot | Keep the existing choices for owned items and mark compatible catalogue rows with an **Unlocked** tag at the top. A weapon has one standard-build row. Selecting it creates the real item and equips it through EFT’s normal slot action. The selectable row stays available for additional copies. |
 | Modding | Choose a compatible catalogue part marked **Unlocked** to create one real part and install it in the selected slot. A blocked row shows EFT’s conflict on hover. Clicking it creates nothing. |
 | Edit Build | Editing, previewing, and saving a weapon preset only change the plan. Assemble uses the selected weapon and available parts first. It can issue the standard build of an unlocked weapon when a body is missing, then creates missing unlocked parts and runs the native assembler. Only remaining locked shortages reach its purchase window. |
@@ -33,6 +34,12 @@ Modding and Edit Build are available out of raid at every Workbench level, inclu
 Copies are free, start at factory condition, and are issued with the Found in Raid flag cleared. The server prefers a usable SPT default preset, then a complete trader build for the same receiver, then a bare receiver if it has all vital parts. Each weapon has one standard build, and its eligible fitted parts unlock with the weapon. Magazines and chambers start empty. Packs and rigs start with empty grids. Armor gets its integral inserts, and removable plates unlock individually.
 
 Every new copy first enters the main stash, so even a one-click equip needs free stash space. If there is too little room for the request, show **Not enough stash space** and create zero items. If the item is created but the subsequent equip or install fails, leave the copy in the stash and tell the player where it is. Retrying the equip uses that copy.
+
+### Inspect descriptions
+
+The client loads the PMC’s catalogue when EFT initializes the main menu inventory, so a player can go straight into a raid. Inspecting loot uses the cached unlocks. Out of raid, inspecting eligible gear missing from the cache checks the catalogue revision. If the template becomes available during a refresh, the open window gains the marker.
+
+On SPT 4.1.6, EFT’s `ItemSpecificationPanel.method_1` fills the description when the window opens and again when examination finishes. The client prepends `UNLOCKED\n\n` to the displayed text, preserving its language, formatting, and additions from mods such as Item Valuation. Closing the window releases its catalogue subscription.
 
 ### Spawn spare magazines
 
@@ -191,6 +198,7 @@ The NUnit suite under `Tests/` drives the stock inventory queue, placement, trad
 | Persistence | Seed an older profile, discard the last copy of a previously earned item, serialize, and reload. Its unlock survives. Restore an earlier snapshot and start a fresh character. Verify inventory and unlocks follow each snapshot and two PMCs stay independent. |
 | Spawn and sale policy | A customized weapon yields one factory build plus its earned parts. Check fresh IDs and parent links, empty magazines, and cleared Found in Raid flags. Routed trader sales reject both ordinary and issued magazines. An ordinary ammunition sale pays the quoted price. |
 | Placement and retries | A locked part, a full stash, or a later failure in a multi-item batch leaves inventory intact. Replaying the same request after reloading the profile creates zero additional copies. A deliberate second request creates a distinct copy. |
+| Inspect descriptions | Check locked and unlocked templates, including a second copy inspected in raid. A catalogue update adds the prefix once above localized rich text. Closing the window releases the update callback. |
 | Spare magazines | Try equipped and stashed weapons with loaded, unlocked magazines. For each footprint, verify the empty copies in the main stash, the count in the success notification, and the original rounds in the fitted magazine. With room in worn gear but too little stash space, verify that only the stash-space warning appears. Check dismissal, a model swap before clicking, and eligibility with a fixed, missing, or locked magazine. |
 | Equipment, Modding, and Edit Build | Catalogue equipment uses the top location tag in both picker layouts. Attachment dropdowns mark catalogue parts **Unlocked**. Check vital-slot hover on equipped weapons and weapons in the stash. Check access to both editing menus with the Workbench bonus active and inactive, including raid and Hideout contexts. Previewing, saving, cancelling, and clicking a conflicting attachment send zero spawn requests. A build needing two identical parts with one already owned requests exactly one. After acknowledgement, equip uses the returned ID. Closing the screen after a valid request leaves the issued item in the stash. |
 

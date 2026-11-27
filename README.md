@@ -6,6 +6,7 @@ Use EFT’s equipment picker, modding, builds and presets views to seamlessly cr
 
 | In EFT | What you can do |
 | --- | --- |
+| Inspect window | An unlocked item’s description starts with **UNLOCKED**, including when you inspect loot in a raid. |
 | Equipment slot | Select a row tagged **Unlocked** to create and equip a compatible item. Weapons use their standard build. |
 | Modding | Choose a part marked **Unlocked** to create and fit it. If an installed part conflicts, hovering shows which part blocks it. Clicking the blocked part creates nothing. |
 | Edit Build | Assemble a weapon preset to use owned parts and automatically create missing unlocked parts. An unlocked weapon body can also be supplied. EFT offers to buy any remaining locked parts as usual. |
