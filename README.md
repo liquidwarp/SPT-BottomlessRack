@@ -12,6 +12,10 @@ Use EFT’s equipment picker, modding, builds and presets views to seamlessly cr
 | Weapon context menu | Right-click an owned weapon and choose **Spawn spare magazines** to add empty copies of its fitted magazine to your main stash. A 1×1 magazine gives **3** spares, a 1×2 or 1×3 gives **2**, and every other shape gives **1**. A notification confirms how many arrived. |
 | Equipment presets | Equip a saved loadout to use your worn and stored items first. Missing unlocked gear is created automatically. Only the remaining shortages appear in the purchase window. |
 | Trader Buy tab (except Fence) | If you can get the offered item for free from your inventory, the trader marks it **Unlocked** and you can’t buy or barter for it. Hover to see how to equip it. You can use unlocked gear to pay for other barter trades though. |
+| PMC trader sales and flea listings | Traders, including Fence, decline gear in the mod’s categories. You also can’t list it on the flea. Take covered gear out of a container before selling the container. Ammo, medicine and barter goods follow the usual sale rules. |
+| Post-raid Scav Sell All | Sell your remaining Scav loadout to Fence at the normal price. Gear you transfer to your PMC follows the PMC sale rules. |
+
+The PMC sale restriction applies to looted, purchased and spawned copies, even before a template is unlocked. It blocks Ragman’s **Circulate** quest, which requires selling backpacks or tactical rigs. Offers already on the flea can finish normally.
 
 Weapons use their published default build when one is available and usable. Otherwise the mod chooses the complete trader offer with the fewest fitted parts, then the lowest loyalty level. A weapon with no complete offer can be issued bare if it already has every vital part. Earning a weapon also earns its standard parts, including on existing profiles.
 

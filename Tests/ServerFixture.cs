@@ -16,6 +16,7 @@ using SPTarkov.Server.Core.Models.Eft.Common;
 using SPTarkov.Server.Core.Models.Eft.Common.Tables;
 using SPTarkov.Server.Core.Models.Eft.ItemEvent;
 using SPTarkov.Server.Core.Models.Eft.Profile;
+using SPTarkov.Server.Core.Models.Enums;
 using SPTarkov.Server.Core.Models.Spt.Config;
 using SPTarkov.Server.Core.Models.Spt.Tables;
 using SPTarkov.Server.Core.Servers;
@@ -41,6 +42,8 @@ public class TestLog : DispatchProxy
 [NonParallelizable]
 public abstract class ServerFixture
 {
+    protected sealed class TestRouter(params ItemRouteAction[] routes) : ItemEventRouter(routes);
+
     protected const string Magazine = "564ca99c4bdc2d16268b4589";
     protected const string Rifle = "5644bd2b4bdc2d3b4c8b4572";
     protected const string Optic = "570fd79bd2720bc7458b4583";
@@ -57,6 +60,7 @@ public abstract class ServerFixture
     protected SptProfile Profile = null!;
     protected TradersTable TradersDb = null!;
     protected ProfileHelper Profiles = null!;
+    protected EventOutputHolder Outputs = null!;
     protected ItemHelper ItemHelper = null!;
     protected ProfileActivityService Activity = null!;
     protected PmcData Pmc => Profile.CharacterData!.PmcData!;
@@ -116,6 +120,7 @@ public abstract class ServerFixture
         Saves = new(new(), [], Json, new(null!), null!, null!, TestLog.For<SaveServer>(), _core);
         Saves.AddProfile(Profile);
         Profiles = new(TestLog.For<ProfileHelper>(), Templates, Globals, Cloner, Saves, null!, null!, null!, null!);
+        Outputs = new(Profiles, new(), Cloner);
         TradersDb = new();
         Activity = new(new());
         await LoadGear();
@@ -133,10 +138,23 @@ public abstract class ServerFixture
     }
 
     protected ItemEventCallbacks Callbacks(params ItemEventRouter[] routers) => new(Http, TestLog.For<ItemEventCallbacks>(),
-        TestLog.For<FileLogger>(), Json, Profiles, null!, new EventOutputHolder(Profiles, new(), Cloner), routers, Cloner);
+        TestLog.For<FileLogger>(), Json, Profiles, null!, Outputs, routers, Cloner);
 
     protected static Item NewItem(string tpl, string? parent = null, string? slot = null) =>
         new() { Id = new MongoId(), Template = tpl, ParentId = parent, SlotId = slot };
+
+    protected static Trader Offer(MongoId trader, params string[] outputs)
+    {
+        var items = outputs.Select(t => NewItem(t, "hideout", "hideout")).ToList();
+        foreach (var item in items) item.Upd = new() { StackObjectsCount = 0 };
+        return new()
+        {
+            Base = new() { Id = trader, Currency = CurrencyType.RUB, UnlockedByDefault = true, LoyaltyLevels = [] },
+            Assort = new() { Items = items, LoyalLevelItems = items.ToDictionary(i => i.Id, _ => 1),
+                BarterScheme = items.ToDictionary(i => i.Id, _ => new List<List<BarterScheme>> { new() { new() { Template = Rifle, Count = 1 } } }) },
+            QuestAssort = [], Dialogue = []
+        };
+    }
 
     protected void Award(params string[] templates) =>
         UnlockLedger.Read(Profile).Discover(templates.Select(t => new MongoId(t)), Gear).Write(Profile);

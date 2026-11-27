@@ -131,7 +131,7 @@ public sealed class ProgressionTests : ServerFixture
     }
 
     [Test]
-    public void PendingMailPartialClaimsRacksAndSellingLastCopy()
+    public void PendingMailPartialClaimsRacksAndDiscardingLastCopy()
     {
         var unclaimed = new MongoId();
         var magazine = NewItem(Magazine, unclaimed, "main");

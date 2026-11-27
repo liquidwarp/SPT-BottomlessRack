@@ -6,9 +6,13 @@ using SPTarkov.Server.Core.Helpers.Profile;
 using SPTarkov.Server.Core.Helpers.Traders;
 using SPTarkov.Server.Core.Models.Common;
 using SPTarkov.Server.Core.Models.Eft.Common;
+using SPTarkov.Server.Core.Models.Eft.Common.Request;
+using SPTarkov.Server.Core.Models.Eft.Common.Tables;
 using SPTarkov.Server.Core.Models.Eft.ItemEvent;
 using SPTarkov.Server.Core.Models.Eft.Match;
 using SPTarkov.Server.Core.Models.Eft.Profile;
+using SPTarkov.Server.Core.Models.Eft.Ragfair;
+using SPTarkov.Server.Core.Models.Eft.Trade;
 using SPTarkov.Server.Core.Models.Enums;
 using SPTarkov.Server.Core.Models.Spt.Tables;
 using SPTarkov.Server.Core.Servers;
@@ -36,6 +40,44 @@ public sealed class GearService(ProfileHelper profiles, GearDefinitions gear, Tr
     public void ResetRaid(MongoId id) => _inRaid.TryRemove(id, out _);
 
     private SemaphoreSlim SaveLock(MongoId id) => SaveLocks(saves).GetOrAdd(id, _ => new(1, 1));
+
+    internal bool RejectSale(string action, BaseInteractionRequestData body, PmcData pmc, ItemEventRouterResponse output, int index)
+    {
+        IEnumerable<MongoId>? offered;
+        switch (action)
+        {
+            case ItemEventActions.TRADING_CONFIRM when body is ProcessSellTradeRequestData { Type: ItemEventActions.SELL_TO_TRADER } sale:
+                offered = sale.Items?.Select(line => line?.Id ?? default);
+                break;
+            case ItemEventActions.RAGFAIR_ADD_OFFER when body is AddOfferRequestData offer:
+                offered = offer.Items;
+                break;
+            default:
+                return false;
+        }
+        var error = CheckSale(pmc.Inventory?.Items, offered);
+        if (error == null) return false;
+        http.AppendErrorToOutput(output, error);
+        output.Warnings![^1].Index = index;
+        return true;
+    }
+
+    private string? CheckSale(List<Item>? inventoryItems, IEnumerable<MongoId>? offered)
+    {
+        const string missing = "Could not find every item offered for sale in your inventory.";
+        var pending = offered?.ToHashSet();
+        if (inventoryItems == null || pending is not { Count: > 0 }) return missing;
+        var roots = new HashSet<string>();
+        foreach (var item in inventoryItems)
+        {
+            if (!pending.Remove(item.Id)) continue;
+            if (gear.Eligible(item.Template)) return GearCategories.SaleWarning;
+            roots.Add(item.Id.ToString());
+            if (pending.Count == 0) break;
+        }
+        if (pending.Count != 0) return missing;
+        return Discovery.Descendants(inventoryItems, roots).Any(gear.Eligible) ? GearCategories.SaleWarning : null;
+    }
 
     private void StoreDiscovery(MongoId id, SptProfile profile, UnlockLedger previous, UnlockLedger current)
     {

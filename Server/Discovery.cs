@@ -40,7 +40,7 @@ public static class Discovery
         foreach (var id in Descendants(assort.Items, roots)) yield return id;
     }
 
-    private static IEnumerable<MongoId> Descendants(List<Item> items, HashSet<string> roots)
+    internal static IEnumerable<MongoId> Descendants(List<Item> items, HashSet<string> roots)
     {
         var children = items.ToLookup(i => i.ParentId);
         var pending = new Stack<string>(roots);

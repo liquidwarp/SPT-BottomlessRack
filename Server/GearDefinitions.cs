@@ -18,21 +18,13 @@ public sealed class GearDefinitions(TemplateTable templates, GlobalTable globals
         return Task.CompletedTask;
     }
 
-    private static readonly HashSet<MongoId> Families =
-    [
-        BaseClasses.WEAPON, BaseClasses.KNIFE, BaseClasses.MOD, BaseClasses.MAGAZINE,
-        BaseClasses.ARMOR, BaseClasses.ARMOR_PLATE, BaseClasses.ARMORED_EQUIPMENT,
-        BaseClasses.VEST, BaseClasses.BACKPACK, BaseClasses.HEADWEAR, BaseClasses.HEADPHONES,
-        BaseClasses.FACE_COVER, BaseClasses.VISORS, BaseClasses.ARM_BAND
-    ];
-
     private readonly ConcurrentDictionary<MongoId, bool> _eligible = new();
     private ConcurrentDictionary<MongoId, RecipePart[]> _recipes = new();
 
     internal IEnumerable<MongoId> Ancestors(MongoId id)
     {
         // Guard bad item-mod hierarchies. Vanilla trees are only a few levels deep.
-        for (var depth = 0; depth < 64 && templates.Items.TryGetValue(id, out var item) && item != null; depth++)
+        for (var depth = 0; depth < GearCategories.MaxDepth && templates.Items.TryGetValue(id, out var item) && item != null; depth++)
         {
             yield return id;
             var parent = item.Parent;
@@ -50,9 +42,8 @@ public sealed class GearDefinitions(TemplateTable templates, GlobalTable globals
         bool matchesFamily = false;
         foreach (var parent in Ancestors(tpl))
         {
-            if (parent == BaseClasses.THROW_WEAP || parent == BaseClasses.BUILT_IN_INSERTS || parent == BaseClasses.AMMO)
-                return false;
-            matchesFamily |= Families.Contains(parent);
+            if (GearCategories.Exclusions.Contains(parent)) return false;
+            matchesFamily |= GearCategories.Families.Contains(parent);
         }
         return matchesFamily;
     });

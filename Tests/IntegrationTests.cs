@@ -3,38 +3,15 @@ using HarmonyLib;
 using Liquidwarp.UnlockGearProgression.Server;
 using NUnit.Framework;
 using SPTarkov.Server.Core.DI.Routing;
-using SPTarkov.Server.Core.Helpers.Commerce;
-using SPTarkov.Server.Core.Helpers.Items;
-using SPTarkov.Server.Core.Helpers.Quest;
-using SPTarkov.Server.Core.Helpers.Profile;
-using SPTarkov.Server.Core.Helpers.Traders;
 using SPTarkov.Server.Core.Models.Common;
 using SPTarkov.Server.Core.Models.Eft.Common.Request;
-using SPTarkov.Server.Core.Models.Eft.Common.Tables;
 using SPTarkov.Server.Core.Models.Eft.ItemEvent;
-using SPTarkov.Server.Core.Models.Eft.Trade;
 using SPTarkov.Server.Core.Models.Enums;
-using SPTarkov.Server.Core.Services.Commerce;
 
 namespace Liquidwarp.UnlockGearProgression.Tests;
 
 public sealed class IntegrationTests : ServerFixture
 {
-    private sealed class TestRouter(params ItemRouteAction[] routes) : ItemEventRouter(routes);
-
-    private static Trader Offer(MongoId trader, params string[] outputs)
-    {
-        var items = outputs.Select(t => NewItem(t, "hideout", "hideout")).ToList();
-        foreach (var item in items) item.Upd = new() { StackObjectsCount = 0 };
-        return new()
-        {
-            Base = new() { Id = trader, Currency = CurrencyType.RUB, UnlockedByDefault = true, LoyaltyLevels = [] },
-            Assort = new() { Items = items, LoyalLevelItems = items.ToDictionary(i => i.Id, _ => 1),
-                BarterScheme = items.ToDictionary(i => i.Id, _ => new List<List<BarterScheme>> { new() { new() { Template = Rifle, Count = 1 } } }) },
-            QuestAssort = [], Dialogue = []
-        };
-    }
-
     [Test]
     public async Task FenceIsSkippedOnEntryAndRotationButOwnershipOrAnotherTraderUnlocks()
     {
@@ -57,7 +34,7 @@ public sealed class IntegrationTests : ServerFixture
     }
 
     [Test]
-    public async Task StockEventQueueObservesClaimThenSaleAndSerializesAConcurrentReplay()
+    public async Task StockEventQueueObservesClaimThenDiscardAndSerializesAConcurrentReplay()
     {
         const string guid = "net.liquidwarp.unlockgearprogression";
         var mod = new Mod(Service, TestLog.For<Mod>());
@@ -72,13 +49,13 @@ public sealed class IntegrationTests : ServerFixture
                     Items.Add(mail);
                     return ValueTask.FromResult(output);
                 }),
-                new ItemRouteAction<BaseInteractionRequestData>("SellFixture", (_, _, _, _, output, _) =>
+                new ItemRouteAction<BaseInteractionRequestData>("DiscardFixture", (_, _, _, _, output, _) =>
                 {
                     Items.Remove(mail);
                     return ValueTask.FromResult(output);
                 }));
             var stock = Callbacks(actions, new SpawnRouter(Service));
-            var payload = Json.Deserialize<ItemEventRouterRequest>("""{"data":[{"Action":"ClaimFixture"},{"Action":"SellFixture"}]}""")!;
+            var payload = Json.Deserialize<ItemEventRouterRequest>("""{"data":[{"Action":"ClaimFixture"},{"Action":"DiscardFixture"}]}""")!;
             await stock.HandleEvents("", payload, Session, default);
             Assert.That(Items, Does.Not.Contain(mail));
             Assert.That(UnlockLedger.Read(Profile).Templates, Does.Contain(Optic));
@@ -96,44 +73,12 @@ public sealed class IntegrationTests : ServerFixture
             Assert.That(Items.Count(i => i.Template == Optic), Is.EqualTo(1));
 
             var invalid = new ItemEventRouterRequest { Data = [
-                JsonSerializer.SerializeToElement(new { Action = "SellFixture" }),
+                JsonSerializer.SerializeToElement(new { Action = "DiscardFixture" }),
                 JsonSerializer.SerializeToElement(new { Action = GearProtocol.Action, sequence = 2,
                     lines = new[] { new { templateId = Rifle, quantity = 1 } } })] };
             using var refused = JsonDocument.Parse(await stock.HandleEvents("", invalid, Session, default));
             Assert.That(refused.RootElement.GetProperty("data").GetProperty("warnings")[0].GetProperty("index").GetInt32(), Is.EqualTo(1));
         }
         finally { new Harmony(guid).UnpatchSelf(); }
-    }
-
-    [Test]
-    public async Task StockTradePaysForEarnedAndSpawnedMagazinesOnIdenticalTerms()
-    {
-        Award(Magazine);
-        var spawned = (await Issue(1, (Magazine, 1))).ProfileChanges[Session].Items!.NewItems!.Single();
-        var ordinary = NewItem(Magazine, Inventory.Stash!.Value, "hideout");
-        ordinary.Upd = new() { StackObjectsCount = 1, SpawnedInSession = false };
-        Items.Add(ordinary);
-        var cash = NewItem(Money.ROUBLES, Inventory.Stash.Value, "hideout");
-        cash.Upd = new() { StackObjectsCount = 1 };
-        Items.Add(cash);
-        TradersDb[Traders.PRAPOR] = Offer(Traders.PRAPOR);
-        Pmc.TradersInfo![Traders.PRAPOR] = new() { SalesSum = 0, LoyaltyLevel = 1, Standing = 0, Unlocked = true };
-        var handbook = new HandbookHelper(TestLog.For<HandbookHelper>(), Templates, null!, Cloner);
-        var trader = new TraderHelper(TestLog.For<TraderHelper>(), Globals, TradersDb, Profiles, handbook, null!, null!, new(), null!, null!);
-        var quests = new QuestHelper(TestLog.For<QuestHelper>(), Templates, new(), null!, null!, Profiles, null!, null!, null!, null!, null!, null!, Cloner);
-        var payments = new PaymentService(TestLog.For<PaymentService>(), TradersDb, Http, handbook, trader, ItemHelper, Placement, null!, null!, null!);
-        var trade = new TradeHelper(TestLog.For<TradeHelper>(), trader, ItemHelper, quests, payments, null!, null!, Http, Placement, null!, null!, null!, Cloner);
-        foreach (var mag in new[] { ordinary, spawned })
-        {
-            var output = new ItemEventRouterResponse { Warnings = [], ProfileChanges = new() { [Session] = new() { Items = new()
-                { NewItems = [], ChangedItems = [], DeletedItems = [] } } } };
-            var request = new ProcessSellTradeRequestData { TransactionId = Traders.PRAPOR, Price = 250,
-                Items = [new() { Id = mag.Id, Count = 1 }] };
-            trade.SellItem(Pmc, Pmc, request, Session, output);
-            Assert.That(output.Warnings, Is.Empty);
-            Assert.That(Items, Does.Not.Contain(mag));
-        }
-        Assert.That(cash.Upd.StackObjectsCount, Is.EqualTo(501));
-        Assert.That(Pmc.TradersInfo[Traders.PRAPOR].SalesSum, Is.EqualTo(500));
     }
 }

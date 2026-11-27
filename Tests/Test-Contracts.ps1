@@ -256,6 +256,11 @@ if ($ClientAssembly) {
         'TraderPurchases+Select' = @([EFT.Trading.Assortment], 'SelectItem')
         'TraderPurchases+Validate' = @([EFT.UI.TraderDealScreen], 'IsValidDeal')
         'TraderPurchases+ExchangeDeal' = @([EFT.UI.TraderDealScreen], 'OnDealButtonClickAsync')
+        GearSales = @([EFT.UI.TraderDealScreen], 'Close')
+        'GearSales+SellQuote' = @([EFT.Trading.Trader], 'GetUserItemPrice')
+        'GearSales+Sell' = @([EFT.Trading.Assortment], 'Sell')
+        'GearSales+SelectOffer' = @([EFT.UI.Ragfair.RagFair], 'CanBeSelectedAtRagfair')
+        'GearSales+ConfirmOffer' = @([EFT.UI.Ragfair.AddOfferWindow], 'CheckRestrictions')
     }
     foreach ($binding in $selectorHooks.GetEnumerator()) {
         $patch = $client.GetType("$namespace.$($binding.Key)", $true)
@@ -444,6 +449,67 @@ if ($ClientAssembly) {
     }
     Write-Output 'PASS  Trader costs, selection and Deal follow the offered template for cash and both barter directions.'
     Write-Output 'PASS  Catalogue loading, a stale exchange quote, the stash, Sell and Fence use the intended purchase rules.'
+
+    function New-SaleTemplate([string]$id, [EFT.InventoryLogic.ItemTemplate]$parent) {
+        $tpl = [Runtime.CompilerServices.RuntimeHelpers]::GetUninitializedObject([EFT.InventoryLogic.ItemTemplate])
+        $tpl._id = [EFT.MongoID]$id
+        $tpl._type = [EFT.InventoryLogic.NodeType]::Item
+        $tpl.Width = $tpl.Height = 1
+        $tpl.Parent = $parent
+        return $tpl
+    }
+    $family = New-SaleTemplate '5448fe124bdc2da5018b4567' $null
+    $partTemplate = New-SaleTemplate '000000000000000000000061' $family
+    $part = [EFT.InventoryLogic.Item]::new('000000000000000000000062', $partTemplate)
+    $questTemplate = New-SaleTemplate '000000000000000000000063' $family
+    $questTemplate.QuestItem = $true
+    $questPart = [EFT.InventoryLogic.Item]::new('000000000000000000000064', $questTemplate)
+    $ammoFamily = New-SaleTemplate '5485a8684bdc2da71d8b4567' $family
+    $round = [EFT.InventoryLogic.Item]::new('000000000000000000000065', (New-SaleTemplate '000000000000000000000066' $ammoFamily))
+    $box = [Runtime.CompilerServices.RuntimeHelpers]::GetUninitializedObject([EFT.InventoryLogic.CompoundItem])
+    [EFT.InventoryLogic.Item].GetField('<Template>k__BackingField').SetValue($box, $medkitTemplate)
+    $boxSlot = [EFT.InventoryLogic.Slot]::new('test', [EFT.InventoryLogic.ItemFilter[]]@(), $false, 0)
+    $box.Slots = [EFT.InventoryLogic.Slot[]]@($boxSlot)
+    $box.Grids = [EFT.InventoryLogic.Grid[]]@()
+    $salesType = $client.GetType("$namespace.GearSales")
+    $activeBuyer = $salesType.GetField('CurrentTrader', $flags)
+    $quoteCheck = $client.GetType("$namespace.GearSales+SellQuote").GetMethod('Prefix', $flags)
+    $confirmSale = $client.GetType("$namespace.GearSales+Sell").GetMethod('Prefix', $flags)
+    $listingCheck = $client.GetType("$namespace.GearSales+SelectOffer").GetMethod('Prefix', $flags)
+    $confirmListing = $client.GetType("$namespace.GearSales+ConfirmOffer").GetMethod('Prefix', $flags)
+    $context = [Runtime.CompilerServices.RuntimeHelpers]::GetUninitializedObject([EFT.UI.RagfairNewOfferContext])
+    $context._selectedItems = [Collections.Generic.HashSet[EFT.InventoryLogic.Item]]::new()
+    $null = $context._selectedItems.Add($box)
+    $assort._clones = [Collections.Generic.Dictionary[EFT.InventoryLogic.Item,EFT.InventoryLogic.Item]]::new()
+    $assort._clones.Add($medkit, $box)
+    try {
+        # Fence enters the same sale scope as an ordinary trader, before the native screen builds its item views.
+        $shopType.GetMethod('Prefix', $flags).Invoke($null, [object[]]@($trader))
+        foreach ($item in $questPart, $round, $box, $part) {
+            $covered = $item -eq $part
+            $selection = [object[]]@($item, $null, $true)
+            if ($quoteCheck.Invoke($null, [object[]]@($trader, $item, $null)) -eq $covered -or
+                $listingCheck.Invoke($null, $selection) -eq $covered -or
+                ($covered -and ($selection[1] -ne 'Gear sales are disabled.' -or $selection[2]))) {
+                throw "Wrong PMC sale decision for template $($item.TemplateId)."
+            }
+        }
+        $boxSlot.ContainedItem = $part
+        $confirmation = [object[]]@($context, $null)
+        if ($confirmSale.Invoke($null, @($assort)) -or $quoteCheck.Invoke($null, [object[]]@($trader, $box, $null)) -or
+            $confirmListing.Invoke($null, $confirmation) -or !$confirmation[1].Failed) {
+            throw 'A newly packed attachment could be quoted, sold or listed with its container.'
+        }
+        $boxSlot.ContainedItem = $null
+        if (!$confirmSale.Invoke($null, @($assort)) -or !$confirmListing.Invoke($null, [object[]]@($context, $null))) {
+            throw 'The empty container stayed blocked.'
+        }
+        $salesType.GetMethod('Prefix', $flags).Invoke($null, @())
+        if (!$quoteCheck.Invoke($null, [object[]]@($trader, $part, $null))) { throw 'Fence kept the PMC sale filter for the Scav transfer.' }
+    } finally {
+        $activeBuyer.SetValue($null, $null)
+    }
+    Write-Output 'PASS  PMC quotes and flea offers check live contents and template exclusions. Scav Fence quotes pass through.'
 
     $spares = $client.GetType("$namespace.SpareMagazines", $true)
     $binding = $spares.GetCustomAttributes([HarmonyLib.HarmonyPatch], $false)[0].info

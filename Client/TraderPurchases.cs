@@ -33,7 +33,11 @@ internal sealed class TraderPurchases
     }
 
     // A trader change can reuse the screen and its item views.
-    private static void Prefix() => _current?.Close();
+    private static void Prefix(Trader trader)
+    {
+        _current?.Close();
+        GearSales.CurrentTrader = GearClient.OutOfRaid ? trader : null;
+    }
 
     private static void Postfix(TraderDealScreen __instance, Trader trader, InventoryController stashController,
         ItemUiContext itemUiContext, UIParent ___UI)

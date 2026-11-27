@@ -8,6 +8,8 @@ using SPTarkov.Server.Core.DI;
 using SPTarkov.Server.Core.DI.Routing;
 using SPTarkov.Server.Core.Helpers.Traders;
 using SPTarkov.Server.Core.Models.Common;
+using SPTarkov.Server.Core.Models.Eft.Common;
+using SPTarkov.Server.Core.Models.Eft.Common.Request;
 using SPTarkov.Server.Core.Models.Eft.Common.Tables;
 using SPTarkov.Server.Core.Models.Eft.ItemEvent;
 using SPTarkov.Server.Core.Models.Eft.Match;
@@ -102,10 +104,14 @@ internal static class InventoryActionPatch
     // the command at its index, including any queued moves ahead of an immediate spawn command.
     private sealed class Position { public int Next; }
     private static readonly ConditionalWeakTable<ItemEventRouterResponse, Position> Positions = new();
-    private static void Prefix(MongoId sessionID, ItemEventRouterResponse output, out int __state)
+    private static bool Prefix(string url, PmcData pmcData, BaseInteractionRequestData body, MongoId sessionID,
+        ItemEventRouterResponse output, out int __state, ref ValueTask<ItemEventRouterResponse> __result)
     {
         __state = Positions.GetOrCreateValue(output).Next++;
         Mod.Observe(() => Mod.Gear.Observe(sessionID));
+        if (!Mod.Gear.RejectSale(url, body, pmcData, output, __state)) return true;
+        __result = ValueTask.FromResult(output);
+        return false;
     }
 
     private static void Postfix(string url, MongoId sessionID, int __state, ref ValueTask<ItemEventRouterResponse> __result) =>
