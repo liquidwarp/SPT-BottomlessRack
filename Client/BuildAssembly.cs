@@ -116,8 +116,8 @@ internal static class BuildAssembly
                     return;
                 }
                 if (!GearClient.IsUnlocked(plan)) return;
-                // Some EFT versions omit weapons from the body's picker. Prefer a loose stash
-                // weapon before requesting a factory build of the same template.
+                // On SPT 4.1.6, IsAcceptableItem requires a Mod root when no body is selected.
+                // The picker skips loose weapons, so look for an owned body before issuing one.
                 var bodies = new List<Item>();
                 foreach (var item in inventory.Inventory.Stash.GetAllItemsFromCollection())
                     if (item is Weapon weapon && weapon.TemplateId == plan.TemplateId &&

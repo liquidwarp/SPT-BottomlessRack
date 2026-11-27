@@ -173,6 +173,8 @@ Choo²’s **Quick Buy Items** calls `ITradingSession.ConfirmPurchase` directly 
 
 ### UI Fixes 6.0.4
 
+On SPT 4.1.6, `EditBuildScreen.UpdateItem` filters stash items through `IsAcceptableItem` when building the weapon-body picker. With no body selected, that filter requires a `Mod` root and rejects loose weapons. UI Fixes’ `FindItemBodyPatch` admits eligible weapons, so BottomlessRack defers to EFT’s populated picker. If the picker is empty for an unlocked weapon, BottomlessRack scans the stash. It reuses a single eligible match, opens the picker for multiple matches, and requests the standard build only when it finds none. [Assembly patch](../Client/BuildAssembly.cs) · [UI Fixes body filter](https://github.com/tyfon7/UIFixes/blob/v6.0.4/src/Patches/WeaponModdingPatches.cs#L893-L933)
+
 UI Fixes attempts a swap in the four-argument `WeaponModdingManipulation.Select` when a slot is occupied. It honors EFT’s simulation flag and submits a transaction only for an actual selection. [UI Fixes swap](https://github.com/tyfon7/UIFixes/blob/v6.0.4/src/Patches/WeaponModdingPatches.cs#L324)
 
 In live Modding, catalogue previews run EFT’s move or swap simulation for both hover and click. A failed simulation returns the same error as an owned attachment. Only a successful click requests a part. After acknowledgement the client verifies the screen’s selector, displayed weapon, slot parent, and previous occupant. It calls the three-argument `Select` with the issued stash item to perform the install and play the native selection sound.
