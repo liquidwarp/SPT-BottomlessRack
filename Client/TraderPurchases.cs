@@ -1,6 +1,4 @@
 using System.Threading.Tasks;
-using Comfort.Common;
-using EFT;
 using EFT.InventoryLogic;
 using EFT.Trading;
 using EFT.UI;
@@ -124,17 +122,15 @@ internal sealed class TraderPurchases
     [HarmonyPatch(typeof(TradingItemView), nameof(TradingItemView.ShowTooltip))]
     private static class Hover
     {
-        private static bool Prefix(TradingItemView __instance, Assortment ____traderAssortment)
+        private static void Postfix(TradingItemView __instance, Assortment ____traderAssortment)
         {
-            if (!Marked(__instance, ____traderAssortment)) return true;
-            var item = __instance.Item;
-            var name = __instance.Examined
-                ? Singleton<ItemFactory>.Instance.BriefItemName(item, item.Name.Localized())
-                : "Unknown item".Localized();
-            var hint = item is Mod ? "Already unlocked. Open Modding from your inventory to fit this part for free."
-                : "Already unlocked. Equip this gear for free from your inventory.";
-            _current._ui.Tooltip.Show(name + "\n" + hint);
-            return false;
+            if (!Marked(__instance, ____traderAssortment)) return;
+            var tooltip = _current._ui.PriceTooltip;
+            if (!tooltip.Displayed) return;
+            // The native hover supplies the item name and lets other mods add their item details.
+            tooltip._currencyIcon.gameObject.SetActive(false);
+            tooltip._price.color = tooltip._priceColor;
+            tooltip._price.text = __instance.Item is Mod ? "Free in Modding" : "Free from inventory";
         }
     }
 

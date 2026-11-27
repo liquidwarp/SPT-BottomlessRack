@@ -236,6 +236,11 @@ if ($ClientAssembly) {
         if (($steps.Name -join ',') -cne 'ApproveAutoExchange,StillSelected,ExchangeCurrency,StillSelected,Purchase') {
             throw 'A trader exchange must recheck the quoted selection before converting funds and before buying.'
         }
+        $hover = $plugin.GetType("$namespace.TraderPurchases/Hover")
+        $afterHover = $hover.Methods | Where-Object Name -ceq 'Postfix'
+        if (!$afterHover -or $hover.Methods.Name -ccontains 'Prefix' -or $afterHover.Body.Instructions.Operand.Name -ccontains 'Show') {
+            throw 'The unlocked price must preserve the trader tooltip that EFT and item-source mods just displayed.'
+        }
     } finally {
         $plugin.Dispose()
     }
@@ -243,7 +248,8 @@ if ($ClientAssembly) {
 
     $selectorHooks = @{
         EquipPreviewTagPatch = @([EFT.UI.EquipItemWindow], 'RefreshItemViews')
-        ModdingPreviewLabelPatch = @([EFT.UI.DragAndDrop.ModdingSelectableItemView], 'Create')
+        ModdingPreviewLabelPatch = @([EFT.UI.WeaponModding.DropDownMenu], 'CreateDropdownModdingItemView')
+        'ModdingPreviewLabelPatch+FittedPart' = @([EFT.UI.WeaponModding.ModdingScreenSlotView], 'CreateModdingItemView')
         InstallCheckPatch = @([EFT.InventoryLogic.DropdownManipulation], 'SelectCheck')
         InstallPatch = @([EFT.InventoryLogic.DropdownManipulation], 'Select')
         EquippedModdingSlotPatch = @([EFT.UI.WeaponModding.ModdingScreenSlotView], 'Show')
@@ -273,18 +279,22 @@ if ($ClientAssembly) {
     if ($wrapper.GetParameters().Count -ne 3 -or !$wrapper.GetParameters()[2].IsOut) {
         throw 'The live preview hook must intercept the three-argument click before the four-argument swap.'
     }
-    $tag = $client.GetType("$namespace.EquipPreviewTagPatch").GetMethod('Postfix', $flags)
-    $priority = $tag.GetCustomAttributesData() | Where-Object { $_.AttributeType.FullName -ceq 'HarmonyLib.HarmonyPriority' }
-    if ($null -eq $priority -or $priority.ConstructorArguments[0].Value -ne [HarmonyLib.Priority]::Last) {
-        throw 'The Unlocked tag must run after normal equipment location tags.'
+    foreach ($name in 'EquipPreviewTagPatch', 'ModdingPreviewLabelPatch', 'ModdingPreviewLabelPatch+FittedPart') {
+        $tag = $client.GetType("$namespace.$name").GetMethod('Postfix', $flags)
+        $priority = $tag.GetCustomAttributesData() | Where-Object { $_.AttributeType.FullName -ceq 'HarmonyLib.HarmonyPriority' }
+        if ($null -eq $priority -or $priority.ConstructorArguments[0].Value -ne [HarmonyLib.Priority]::Last) {
+            throw "$name must label the item after its location or price has been drawn."
+        }
     }
     Write-Output 'PASS  Equipment, dropdown labels, and equipped-slot hover target their native views.'
 
     # Edit Build can show two distinct EFT items for the picker entry and the part fitted to the plan.
-    $template = [Runtime.CompilerServices.RuntimeHelpers]::GetUninitializedObject([EFT.InventoryLogic.ItemTemplate])
+    $template = [EFT.InventoryLogic.ModTemplate]::new()
     $template._id = [EFT.MongoID]'000000000000000000000011'
-    $pickerItem = [EFT.InventoryLogic.Item]::new('000000000000000000000012', $template)
-    $fittedItem = [EFT.InventoryLogic.Item]::new('000000000000000000000013', $template)
+    $template.Width = $template.Height = $template.StackObjectsCount = $template.StackMaxSize = 1
+    $template.ConflictingItems = [string[]]@()
+    $pickerItem = [EFT.InventoryLogic.Mod]::new('000000000000000000000012', $template)
+    $fittedItem = [EFT.InventoryLogic.Mod]::new('000000000000000000000013', $template)
     $gear = $client.GetType("$namespace.GearClient")
     $unlocks = $gear.GetField('Unlocked', $flags).GetValue($null)
     $revision = $gear.GetField('_revision', $flags)
@@ -298,9 +308,39 @@ if ($ClientAssembly) {
         $null = $previews.Add($pickerItem)
         $check = $client.GetType("$namespace.InstallCheckPatch").GetMethod('Prefix', $flags)
         $click = $client.GetType("$namespace.InstallPatch").GetMethod('Prefix', $flags)
-        $live = [Runtime.CompilerServices.RuntimeHelpers]::GetUninitializedObject([EFT.InventoryLogic.WeaponModdingManipulation])
+        # Use a detached preview and a real stash copy so EFT can simulate both a move and a swap.
+        $previewOwner = [EFT.InventoryLogic.ItemController]::new($pickerItem, 'preview', 'Unlocked gear', $false, 'HideoutProduction')
+        $filters = [EFT.InventoryLogic.ItemFilter[]]@()
+        $bodyTemplate = [EFT.InventoryLogic.CompoundItemTemplate]::new()
+        $bodyTemplate._id = [EFT.MongoID]'000000000000000000000014'
+        $bodyTemplate.Width = $bodyTemplate.Height = 1
+        $bodyTemplate.ConflictingItems = [string[]]@()
+        $bodyTemplate.Slots = @([EFT.InventoryLogic.Slot]::new('mod_sight_rear', $filters, $false, 'Merge'),
+                                [EFT.InventoryLogic.Slot]::new('mod_handguard', $filters, $false, 'Merge'))
+        $body = [EFT.InventoryLogic.CompoundItem]::new('000000000000000000000015', $bodyTemplate)
+        $slot, $nearbySlot = $body.Slots
+        $stashTemplate = [EFT.InventoryLogic.StashTemplate]::new()
+        $stashTemplate.Grids = @([EFT.InventoryLogic.Grid]::new('main', 6, 3, $false, $filters, $null))
+        $stash = [EFT.InventoryLogic.Stash]::new('000000000000000000000016', $stashTemplate)
+        $equipmentTemplate = [EFT.InventoryLogic.InventoryEquipmentTemplate]::new()
+        $equipmentTemplate.Slots = @(foreach ($name in [Enum]::GetNames([EFT.InventoryLogic.EquipmentSlot])) {
+            [EFT.InventoryLogic.Slot]::new($name, $filters, $false, 'DontMerge')
+        })
+        $equipment = [EFT.InventoryLogic.InventoryEquipment]::new('000000000000000000000017', $equipmentTemplate)
+        $bindings = [Collections.Generic.Dictionary[EFT.InventoryLogic.EBoundItem,EFT.MongoID]]::new()
+        $inventory = [EFT.InventoryLogic.Inventory]::new($equipment, $stash, $null, $null, $null, $null,
+            $null, $bindings, $null, [Collections.Generic.List[EFT.MongoID]]::new(), $null, $false)
+        $controller = [Runtime.CompilerServices.RuntimeHelpers]::GetUninitializedObject([EFT.InventoryLogic.BackEndInventoryController])
+        [EFT.InventoryLogic.InventoryController].GetField('<Inventory>k__BackingField').SetValue($controller, $inventory)
+        $controller._rootItem = $equipment
+        $controller._searchController = $previewOwner.SearchController
+        $controller._activeEvents = $previewOwner._activeEvents
+        $controller._examined = $true
+        $controller._restrictionsInLobby = [Collections.Generic.Dictionary[string,int]]::new()
+        $stash.CurrentAddress = $equipment.CurrentAddress = $controller.CreateItemAddress()
+        foreach ($item in $body, $fittedItem) { $null = $stash.Grid.FindLocationForItem($item).Add($item, $false) }
+        $live = [EFT.InventoryLogic.WeaponModdingManipulation]::new($controller, [EFT.InventoryLogic.CompoundItem[]]@($stash))
         $edit = [Runtime.CompilerServices.RuntimeHelpers]::GetUninitializedObject([EFT.InventoryLogic.EditBuildManipulation])
-        $slot = [EFT.InventoryLogic.Slot]::new('mod_scope', [EFT.InventoryLogic.ItemFilter[]]@(), $false, 0)
         foreach ($operation in $check, $click) {
             # A live click with an active Unity screen goes through the asynchronous stash-use tests.
             $available = $operation -eq $check
@@ -318,6 +358,36 @@ if ($ClientAssembly) {
             }
         }
         $revision.SetValue($null, 1)
+        $blockingTemplate = [EFT.InventoryLogic.ItemTemplate]::new()
+        $blockingTemplate._id = [EFT.MongoID]'000000000000000000000018'
+        $blockingTemplate.Width = $blockingTemplate.Height = $blockingTemplate.StackObjectsCount = $blockingTemplate.StackMaxSize = 1
+        $blockingTemplate.ConflictingItems = @($pickerItem.StringTemplateId)
+        $blocker = [EFT.InventoryLogic.Item]::new('000000000000000000000019', $blockingTemplate)
+        $oldSight = [EFT.InventoryLogic.Item]::new('000000000000000000000020', $blockingTemplate)
+        foreach ($occupied in $false, $true) {
+            if ($occupied) { $slot.Add($oldSight) }
+            $previous = $slot.ContainedItem
+            $nearbySlot.Add($blocker)
+            $reason = $null
+            if ($live.SelectCheck($fittedItem, $slot, [ref]$reason) -or
+                $reason -isnot [EFT.InventoryLogic.Slot+ConflictingItemError] -or $reason.ConflictingItem -ne $blocker) {
+                throw 'The stash copy must report the conflicting attachment still fitted to the build.'
+            }
+            foreach ($operation in $check, $click) {
+                $values = [object[]]@($live, $pickerItem, $slot, $null, $true)
+                if ($operation.Invoke($null, $values) -or $values[4] -or $values[3].GetType() -ne $reason.GetType() -or
+                    $values[3].ConflictingItem -ne $blocker -or $slot.ContainedItem -ne $previous -or $pickerItem.Owner -ne $previewOwner) {
+                    throw 'A blocked preview must reject hover and click with the same conflict as the stash copy and preserve both items.'
+                }
+            }
+            $null = $nearbySlot.RemoveItemWithoutRestrictions()
+            $values = [object[]]@($live, $pickerItem, $slot, $null, $false)
+            if (!$live.SelectCheck($fittedItem, $slot, [ref]$reason) -or $check.Invoke($null, $values) -or !$values[4] -or
+                $null -ne $values[3] -or $slot.ContainedItem -ne $previous -or $pickerItem.Owner -ne $previewOwner) {
+                throw 'Removing the blocker must enable the preview, including when the part being replaced conflicts with it.'
+            }
+        }
+        $null = $slot.RemoveItemWithoutRestrictions()
         $id = $pickerItem.StringTemplateId
         $null = $unlocks.Add($id)
         $cache.Add($id, $pickerItem)
@@ -357,6 +427,7 @@ if ($ClientAssembly) {
     }
     Write-Output 'PASS  An earned template labels both Edit Build item instances and leaves ordinary Modding rows alone.'
     Write-Output 'PASS  Both dropdown wrappers intercept only the exact live preview and pass the same-template owned item and Edit Build through.'
+    Write-Output 'PASS  A conflicting attachment blocks preview hover and click with the stash error, and removing it permits a move or swap.'
     Write-Output 'PASS  Edit Build keeps the native item or appends one earned choice. Live Modding keeps owned and catalogue rows distinct.'
 
     # Exercise the actual trader hooks with managed EFT objects, without constructing Unity views.
