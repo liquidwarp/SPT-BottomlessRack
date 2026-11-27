@@ -21,7 +21,6 @@ public sealed class GearService(ProfileHelper profiles, GearDefinitions gear, In
     HttpResponseUtil http)
 {
     private readonly ConcurrentDictionary<MongoId, SemaphoreSlim> _gates = new();
-    private readonly ConcurrentDictionary<MongoId, byte> _inRaid = new();
     private readonly ConcurrentDictionary<MongoId, byte> _pendingSaves = new();
     // Use SPT's per-profile save lock during publication so autosave cannot see half a grant.
     private static readonly AccessTools.FieldRef<SaveServer, ConcurrentDictionary<MongoId, SemaphoreSlim>> SaveLocks =
@@ -30,10 +29,6 @@ public sealed class GearService(ProfileHelper profiles, GearDefinitions gear, In
         AccessTools.FieldRefAccess<SaveServer, ConcurrentDictionary<MongoId, string>>("saveMd5");
 
     public SemaphoreSlim Gate(MongoId id) => _gates.GetOrAdd(id, _ => new(1, 1));
-    public bool InRaid(MongoId id) => _inRaid.ContainsKey(id);
-    public void StartRaid(MongoId id) => _inRaid[id] = 1;
-    public void ResetRaid(MongoId id) => _inRaid.TryRemove(id, out _);
-
     private SemaphoreSlim SaveLock(MongoId id) => SaveLocks(saves).GetOrAdd(id, _ => new(1, 1));
 
     internal bool RejectSale(string action, BaseInteractionRequestData body, PmcData pmc, ItemEventRouterResponse output, int index)
@@ -97,27 +92,10 @@ public sealed class GearService(ProfileHelper profiles, GearDefinitions gear, In
 
     public void Observe(MongoId id)
     {
-        if (InRaid(id)) return;
         var profile = profiles.GetFullProfile(id);
         if (profile?.CharacterData?.PmcData is not { Inventory.Items: not null } pmc) return;
         var original = ReadLedger(id, profile);
         StoreLedger(id, profile, original, original.Discover(Discovery.Owned(pmc.Inventory), gear));
-    }
-
-    public async Task FinishRaid(MongoId id, ExitStatus? result, MongoId[] carried)
-    {
-        if (result == ExitStatus.TRANSIT) return;
-        ResetRaid(id);
-        var profile = profiles.GetFullProfile(id);
-        var previous = ReadLedger(id, profile);
-        if (result is ExitStatus.SURVIVED or ExitStatus.RUNNER)
-        {
-            var next = previous.Discover(carried, gear);
-            StoreLedger(id, profile, previous, next);
-        }
-        Observe(id);
-        if (ReadLedger(id, profile).Templates.Count != previous.Templates.Count)
-            await saves.SaveProfileAsync(id);
     }
 
     public ValueTask<Catalogue> Read(MongoId id, bool reconcile, CancellationToken ct) =>
@@ -161,7 +139,6 @@ public sealed class GearService(ProfileHelper profiles, GearDefinitions gear, In
     {
         try
         {
-            if (InRaid(id)) throw new SpawnRejected("Gear can only be spawned out of raid.");
             if (saves.IsProfileInvalidOrUnloadable(id)) throw new SpawnRejected("Unable to save this profile.");
             var profile = profiles.GetFullProfile(id);
             var ledger = ReadLedger(id, profile);

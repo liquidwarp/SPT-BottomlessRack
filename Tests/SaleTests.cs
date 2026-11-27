@@ -197,7 +197,9 @@ public sealed class SaleTests : ServerFixture
         var mail = new MailSendService(TestLog.For<MailSendService>(), Templates, new(), Saves, new(null!),
             new(TestLog.For<DialogueHelper>(), Profiles), notifications, null!, ItemHelper, Cloner);
         var stock = Callbacks(Trades(mail: mail));
-        await Service.FinishRaid(Session, ExitStatus.SURVIVED, [new MongoId(Rifle), new MongoId(Optic)]);
+        var scavEquipment = new MongoId();
+        Profile.CharacterData!.ScavData = new() { Inventory = new() { Equipment = scavEquipment,
+            Items = [NewItem(Rifle, scavEquipment, "FirstPrimaryWeapon")] } };
         var kept = NewItem(Optic, Inventory.Stash!.Value, "hideout");
         Items.Add(kept);
         Assert.That((await Send(stock, new { Action = "SellAllFromSavage", totalValue = 18790 })).Warnings, Is.Empty);
@@ -206,6 +208,6 @@ public sealed class SaleTests : ServerFixture
         Assert.That(reward.Upd!.StackObjectsCount, Is.EqualTo(18790));
         Assert.That((await Send(stock, Sell(Traders.FENCE, kept))).Warnings, Has.Count.EqualTo(1));
         Assert.That(Items, Does.Contain(kept));
-        Assert.That(UnlockLedger.Read(Profile).Templates, Does.Contain(Rifle));
+        Assert.That(UnlockLedger.Read(Profile).Templates, Is.EquivalentTo(new[] { Optic }));
     }
 }

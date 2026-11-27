@@ -4,7 +4,6 @@ using NUnit.Framework;
 using SPTarkov.Common.Extensions;
 using SPTarkov.Server.Core.Models.Common;
 using SPTarkov.Server.Core.Models.Eft.Profile;
-using SPTarkov.Server.Core.Models.Enums;
 using SPTarkov.Server.Core.Models.Enums.Hideout;
 
 namespace Liquidwarp.BottomlessRack.Tests;
@@ -58,14 +57,12 @@ public sealed class ProgressionTests : ServerFixture
     }
 
     [Test]
-    public async Task RejectsLockedInvalidOrInRaidWithoutConsumingSequence()
+    public async Task RejectsLockedOrInvalidRequestsWithoutConsumingSequence()
     {
         Award(Magazine);
         foreach (var response in new[] { await Issue(1, (Magazine, 1), (Optic, 1)), await Issue(1, (Magazine, 0)),
             await Issue(1, (Magazine, int.MaxValue), (Magazine, 1)), await Issue(1, ("bad id", 1)), await Issue(0, (Magazine, 1)) })
             Assert.That(response.Warnings, Is.Not.Empty);
-        Service.StartRaid(Session);
-        Assert.That((await Issue(1, (Magazine, 1))).Warnings, Is.Not.Empty);
         Assert.That(UnlockLedger.Read(Profile).Receipt.Sequence, Is.Zero);
         Assert.That(Items.Count, Is.EqualTo(1));
     }
@@ -173,19 +170,22 @@ public sealed class ProgressionTests : ServerFixture
         Assert.That(UnlockLedger.Read(new SptProfile { SptData = new() }).Templates, Is.Empty);
     }
 
-    [TestCase(ExitStatus.SURVIVED, true)]
-    [TestCase(ExitStatus.RUNNER, true)]
-    [TestCase(ExitStatus.KILLED, false)]
-    [TestCase(ExitStatus.TRANSIT, false)]
-    public async Task ScavExitAndRetainedPmcGear(ExitStatus outcome, bool earned)
+    [Test]
+    public async Task CatalogueReadUnlocksPmcEquipmentAndTransferredScavGear()
     {
-        Service.StartRaid(Session);
+        var scavEquipment = new MongoId();
+        var optic = NewItem(Optic, scavEquipment, "mod_scope");
+        Profile.CharacterData!.ScavData = new() { Inventory = new() { Equipment = scavEquipment, Items = [optic] } };
         Items.Add(NewItem(Magazine, Inventory.Equipment!.Value, "TacticalVest"));
-        await Service.FinishRaid(Session, outcome, [new MongoId(Optic)]);
-        var ledger = UnlockLedger.Read(Profile);
-        Assert.That(ledger.Templates.Contains(Optic), Is.EqualTo(earned));
-        Assert.That(ledger.Templates.Contains(Magazine), Is.EqualTo(outcome != ExitStatus.TRANSIT));
-        Assert.That(Service.InRaid(Session), Is.EqualTo(outcome == ExitStatus.TRANSIT));
+
+        var first = await Service.Read(Session, true, default);
+        Assert.That(first.Templates, Is.EquivalentTo(new[] { Magazine }));
+
+        Profile.CharacterData.ScavData.Inventory.Items!.Remove(optic);
+        optic.ParentId = Inventory.Stash!.Value;
+        Items.Add(optic);
+        var second = await Service.Read(Session, true, default);
+        Assert.That(second.Templates, Is.EquivalentTo(new[] { Magazine, Optic }));
     }
 
     [Test]

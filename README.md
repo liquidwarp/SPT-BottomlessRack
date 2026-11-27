@@ -2,7 +2,7 @@
 
 *A seamlessly integrated gear spawner with unlock-based progression*
 
-Permanently unlock equipment and attachments the first time you acquire them. Buy a piece of gear, extract with it, or claim it from mail, and you can make free copies even after you lose the original.
+Buy eligible gear, bring it back to your PMC, or claim it from mail to unlock it permanently. You can make free copies even after you lose the original.
 
 Use EFT’s equipment picker, modding, builds and presets views to seamlessly create free copies of unlocked equipment.
 
@@ -26,7 +26,7 @@ In Edit Build, **Unlocked** marks parts that Assemble can supply for free. Choo�
 
 Modding and Edit Build are available from the stash before you construct the Workbench, including the Edit Build button on the bottom menu.
 
-A successful PMC or Scav extraction counts, including a Run Through. The catalogue also picks up gear you already own, collected crafts, and purchases from Fence or the flea. A customized weapon unlocks its standard factory parts alongside the parts you actually recovered.
+The catalogue picks up gear in your PMC’s equipment and stash, including Scav loot you transfer, collected crafts, and purchases from Fence or the flea. A customized weapon unlocks its standard factory parts alongside the parts you recovered.
 
 Each spawn request needs room in the main stash for the whole batch.
 

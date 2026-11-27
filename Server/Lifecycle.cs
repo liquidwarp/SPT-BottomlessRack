@@ -3,16 +3,12 @@ using System.Runtime.CompilerServices;
 using SPTarkov.Common.Models.Logging;
 using SPTarkov.DI.Annotations;
 using SPTarkov.Server.Core.Callbacks;
-using SPTarkov.Server.Core.Controllers;
 using SPTarkov.Server.Core.DI;
 using SPTarkov.Server.Core.DI.Routing;
 using SPTarkov.Server.Core.Models.Common;
 using SPTarkov.Server.Core.Models.Eft.Common;
 using SPTarkov.Server.Core.Models.Eft.Common.Request;
 using SPTarkov.Server.Core.Models.Eft.ItemEvent;
-using SPTarkov.Server.Core.Models.Eft.Match;
-using SPTarkov.Server.Core.Models.Enums;
-using SPTarkov.Server.Core.Services.InRaid;
 
 namespace Liquidwarp.BottomlessRack.Server;
 
@@ -36,43 +32,18 @@ public sealed class Mod(GearService service, ISptLogger<Mod> logger) : IOnLoad
         try { Gear.Observe(id); }
         catch (Exception ex) { Log.Error($"Gear discovery failed: {ex}"); }
     }
-
-    internal static async Task ObserveRaid(MongoId id, ExitStatus? result, MongoId[] carried)
-    {
-        try { await Gear.FinishRaid(id, result, carried); }
-        catch (Exception ex) { Log.Error($"Could not record gear after raid: {ex}"); }
-    }
-
-    internal static void Locked(MongoId id, Action action)
-    {
-        var gate = Gear.Gate(id);
-        gate.Wait();
-        try { action(); }
-        finally { gate.Release(); }
-    }
-
-    internal static async ValueTask<string> Finish(ValueTask<string> pending, SemaphoreSlim gate, Action? accepted = null)
-    {
-        try
-        {
-            var result = await pending;
-            accepted?.Invoke();
-            return result;
-        }
-        finally { gate.Release(); }
-    }
-}
-
-[HarmonyPatch(typeof(GameController), nameof(GameController.GameStart))]
-internal static class LoginPatch
-{
-    private static void Postfix(MongoId sessionId) => Mod.Locked(sessionId, () => Mod.Gear.ResetRaid(sessionId));
 }
 
 [HarmonyPatch(typeof(ProfileCallbacks), nameof(ProfileCallbacks.GetProfileData))]
 internal static class ProfilePatch
 {
-    private static void Postfix(MongoId sessionID) => Mod.Locked(sessionID, () => Mod.Observe(sessionID));
+    private static void Postfix(MongoId sessionID)
+    {
+        var gate = Mod.Gear.Gate(sessionID);
+        gate.Wait();
+        try { Mod.Observe(sessionID); }
+        finally { gate.Release(); }
+    }
 }
 
 [HarmonyPatch(typeof(ItemEventCallbacks), nameof(ItemEventCallbacks.HandleEvents))]
@@ -85,7 +56,13 @@ internal static class InventoryBatchPatch
     }
 
     private static void Postfix(ref ValueTask<string> __result, SemaphoreSlim __state) =>
-        __result = Mod.Finish(__result, __state);
+        __result = Finish(__result, __state);
+
+    private static async ValueTask<string> Finish(ValueTask<string> pending, SemaphoreSlim gate)
+    {
+        try { return await pending; }
+        finally { gate.Release(); }
+    }
 }
 
 [HarmonyPatch(typeof(ItemEventRouter), nameof(ItemEventRouter.HandleItemEvent))]
@@ -116,51 +93,5 @@ internal static class InventoryActionPatch
         else if (action == GearProtocol.Action)
             result.Warnings[^1].Index = index;
         return result;
-    }
-}
-
-[HarmonyPatch(typeof(MatchCallbacks), nameof(MatchCallbacks.StartLocalRaidAsync))]
-internal static class StartRaidPatch
-{
-    private static void Prefix(MongoId sessionID, out SemaphoreSlim __state)
-    {
-        __state = Mod.Gear.Gate(sessionID);
-        __state.Wait();
-    }
-    private static void Postfix(MongoId sessionID, SemaphoreSlim __state, ref ValueTask<string> __result) =>
-        __result = Mod.Finish(__result, __state, () => Mod.Gear.StartRaid(sessionID));
-}
-
-[HarmonyPatch(typeof(LocationLifecycleService), nameof(LocationLifecycleService.EndLocalRaidAsync))]
-internal static class EndRaidPatch
-{
-    [HarmonyPriority(Priority.First)]
-    private static void Prefix(MongoId sessionId, EndLocalRaidRequestData request, out (SemaphoreSlim Gate, MongoId[] Carried) __state)
-    {
-        // Snapshot before SPT regenerates the player Scav. Publish only after the stock handler accepts the exit.
-        var carried = request.Results?.Result is ExitStatus.SURVIVED or ExitStatus.RUNNER
-            ? Discovery.Owned(request.Results.Profile?.Inventory, carriedOnly: true).ToArray() : [];
-        var gate = Mod.Gear.Gate(sessionId);
-        gate.Wait();
-        __state = (gate, carried);
-    }
-
-    private static void Postfix(MongoId sessionId, EndLocalRaidRequestData request, bool __runOriginal,
-        (SemaphoreSlim Gate, MongoId[] Carried) __state, ref Task __result)
-    {
-        if (__state.Gate != null)
-            __result = After(__result, sessionId, __runOriginal, request.Results?.Result, __state);
-    }
-
-    private static async Task After(Task pending, MongoId id, bool accepted, ExitStatus? result, (SemaphoreSlim Gate, MongoId[] Carried) state)
-    {
-        try
-        {
-            await pending;
-            // Fika skips the stock end-raid handler for spectators.
-            if (accepted) await Mod.ObserveRaid(id, result, state.Carried);
-            else Mod.Gear.ResetRaid(id);
-        }
-        finally { state.Gate.Release(); }
     }
 }

@@ -6,20 +6,17 @@ namespace Liquidwarp.BottomlessRack.Server;
 
 public static class Discovery
 {
-    public static IEnumerable<MongoId> Owned(BotBaseInventory? inventory, bool carriedOnly = false)
+    public static IEnumerable<MongoId> Owned(BotBaseInventory? inventory)
     {
         if (inventory?.Items == null) return [];
         var roots = new HashSet<string>();
         if (inventory.Equipment is { } equipment) roots.Add(equipment.ToString());
-        if (!carriedOnly)
-        {
-            if (inventory.Stash is { } stash) roots.Add(stash.ToString());
-            if (inventory.SortingTable is { } sorting) roots.Add(sorting.ToString());
-            foreach (var (area, root) in inventory.HideoutAreaStashes ?? [])
-                if (int.TryParse(area, out var number) && (HideoutAreas)number is
-                    HideoutAreas.WeaponStand or HideoutAreas.WeaponStandSecondary or HideoutAreas.EquipmentPresetsStand or HideoutAreas.PlaceOfFame)
-                    roots.Add(root.ToString());
-        }
+        if (inventory.Stash is { } stash) roots.Add(stash.ToString());
+        if (inventory.SortingTable is { } sorting) roots.Add(sorting.ToString());
+        foreach (var (area, root) in inventory.HideoutAreaStashes ?? [])
+            if (int.TryParse(area, out var number) && (HideoutAreas)number is
+                HideoutAreas.WeaponStand or HideoutAreas.WeaponStandSecondary or HideoutAreas.EquipmentPresetsStand or HideoutAreas.PlaceOfFame)
+                roots.Add(root.ToString());
         return Descendants(inventory.Items, roots);
     }
 

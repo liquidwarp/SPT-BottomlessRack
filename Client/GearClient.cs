@@ -130,6 +130,9 @@ internal static class GearClient
             if (!ReferenceEquals(session, _session) || !OutOfRaid) return null;
             async Task<string> Send(long sequence, IReadOnlyList<SpawnLine> request)
             {
+                // Recovering a previous receipt can take us past the earlier raid check.
+                if (!ReferenceEquals(session, _session) || !OutOfRaid)
+                    throw new SpawnNotice("Reopen your stash to request gear.");
                 var done = new TaskCompletionSource<IResult>();
                 session.SendOperationRightNow(new { Action = GearProtocol.Action, sequence, lines = request }, done.SetResult);
                 return (await done.Task).Error;
