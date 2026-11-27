@@ -10,7 +10,7 @@ Unlocks use EFT template IDs. The first version covers weapons, attachments, mag
 
 | Source | When the catalogue gains the gear |
 | --- | --- |
-| Trader assort | Use the offers of accessible traders other than Fence, including modded traders. Cash and barter offers both count at the PMC’s loyalty level and quest state, including the gear supplied in a bundle. Observe eligible rotations during the player’s session. Prices, barter ingredients, stock counters, and personal limits govern purchases. Opening the trader or buying the item is optional. |
+| Trader assort | Use the offers of accessible traders other than Fence, including modded traders. Cash and barter offers both count at the PMC’s loyalty level and quest state, including the gear supplied in a bundle. Observe eligible rotations during the player’s session. The PMC earns the unlock without opening the trader or paying. Prices, barter ingredients, stock counters, and personal limits govern offers that can still be bought. |
 | Extraction | At a completed PMC or player-Scav extraction, credit eligible gear carried, worn, packed, or installed. A Run Through counts. A successful Scav earns the unlock before choosing what to transfer or sell. A map transit defers the check until the player returns home. |
 | PMC ownership | Credit gear that reaches the PMC’s stash, equipment, or owned storage by any route, including a purchase, collected craft, reward, Scav transfer, or direct grant from another mod. Scan nested items. On death, only gear actually retained by the PMC qualifies through this rule. |
 | Mail | Credit each item tree when its transfer into PMC ownership succeeds. Insurance, quest rewards, gifts, and mod mail use the same rule. With a partial claim, the remaining attachments qualify when collected. |
@@ -39,6 +39,37 @@ Every new copy first enters the main stash, so even a one-click equip needs free
 Offer **Spawn spare magazines** out of raid on a PMC-owned weapon with an unlocked, detachable magazine fitted. A 1×1 magazine gives three empty copies, a 1×2 or 1×3 gives two, and any other shape, including 2×2, gives one. Rotation preserves the count. All copies go into the main stash whether the weapon is equipped or stored.
 
 On click, the client rechecks the fitted model and requests the batch through the usual stash grant. Once it finds the issued items in the stash, it shows the confirmed count in an EFT message such as **Spawned 2 spare magazines in your stash.**
+
+## Trader purchase controls
+
+On the **Buy** tab of any trader other than Fence, including modded traders, apply the same rule to every cash and barter offer. Once the PMC’s catalogue is ready, look up the template ID of the item **the trader gives the player** with `GearClient.Unlocked.Contains(item.TemplateId)`. A match replaces the cash price or barter requirement with **Unlocked** and disables selection for a deal. The player can still examine the item and use its context menu. Fence uses EFT’s prices and purchase controls for every offer, including gear the PMC has already unlocked.
+
+Once a scoped rifle offer meets the PMC’s loyalty and quest requirements, trader discovery credits the receiver and every eligible fitted part. A separate offer for just that receiver also shows **Unlocked** if the PMC can spawn the weapon’s standard build. When the chosen build is a functional bare weapon, the grant delivers the bare receiver. An earned receiver classed as an attachment can be issued as a loose part and gets the same label.
+
+A weapon body that lacks a vital part when bare needs a usable default preset or a complete trader build to spawn. If neither exists, the profile still records the unlock. The server rejects the spawn request, so the trader offers that body on ordinary terms.
+
+| Trader gives you | You give the trader | Buy tab |
+| --- | --- | --- |
+| An unlocked rig | Roubles | **Unlocked**. Deal disabled. |
+| The same unlocked rig | Two medkits | **Unlocked**. Deal disabled. |
+| A medkit | An unlocked rig | Shows the rig requirement. The player can hand it over to receive the medkit. |
+
+An unlocked magazine sold with rounds also shows **Unlocked**. Its free copy comes empty. Loose ammunition remains purchasable.
+
+Hovering the item shows *“Already unlocked. Equip this gear for free from your inventory.”* For a weapon attachment, use *“Already unlocked. Open Modding from your inventory to fit this part for free.”*
+
+### Client integration on SPT 4.1.6
+
+1. At `TraderDealScreen.Show`, skip Fence by trader ID. For other traders, call `GearClient.Enter` with the screen’s inventory controller and reuse `SelectorRefresh` for catalogue updates. Allow browsing during the first read and wait for it before accepting a deal. If it fails, allow a fresh purchase at the displayed price. A later refresh failure can use this PMC’s last successful catalogue.
+2. Use the same lookup in `TradingItemView.SetPrice` and `TradingItemView.ShowTooltip` for trader stock in Buy mode. On `GearClient.Updated`, repaint the visible stock. Restore the native price and hover behavior whenever EFT rebinds a cell, including when switching to Fence or the Sell tab.
+3. For the active non-Fence assortment, guard `Assortment.SelectItem` with the same lookup. If the item is unlocked, clear the selection with `SelectItem(null)`. This covers both EFT’s click and UI Fixes’ buy-tab shortcut. Also clear a staged item if a catalogue update marks it unlocked. Recheck at Deal and before submitting a purchase or approving a pending currency conversion so a stale selection cannot spend money.
+
+### Trader acceptance checks
+
+- Check assembled and stripped offers for the same spawnable weapon, a functional bare weapon and a receiver attachment. Each should show **Unlocked**. Verify EFT’s usual purchase flow for a weapon body the server rejects.
+- Exercise both directions of the rig barter above. A blocked rig offer consumes zero medkits. Buying the medkit with a rig consumes the payment and delivers the medkit. Repeat the unlocked-offer check with armor and a loaded magazine.
+- Stage a priced item, click an unlocked item and try **Deal**. Check the label and tooltip, verify that inspection works, and expect zero purchase, exchange or spawn commands. Repeat when the staged item unlocks during currency-exchange approval.
+- Switch from a regular trader to Fence and buy an already-unlocked item at Fence’s price. Switch back, check the label after a restock, and sell an owned copy at the trader’s quoted price.
 
 ## Server and client design
 
@@ -86,7 +117,7 @@ Choo² builds its shopping list as it draws the slots in Edit Build. Its cost pa
 
 An earned Edit Build row carries an **Unlocked** badge with the caption **Free with Assemble**. The badge belongs to the native item view and is removed when EFT disposes that row's item context. Existing choices keep their own item and price. The selector appends a compatible earned choice when the template is absent, including after its last trader offer expires.
 
-Choo²'s total is the price of buying the parts on its list. Clicking **Quick Buy Items** can spend currency on a part that Assemble would supply for free. Each action follows its own rules using the player's real inventory.
+Choo²’s **Quick Buy Items** calls `ITradingSession.ConfirmPurchase` directly from Edit Build. That button can spend currency on an unlocked part. Assemble supplies the missing unlocked part for free. [Quick Buy submission](https://github.com/Soulztorm/ChooChoo-TraderModding/blob/ee0c5c2c930df9eb868e44c7fb6a18810730a14c/ChooChoo-TraderModding_Client/Client/TraderModding/TraderModdingScript.cs#L280-L296)
 
 **Check** the same all-earned plan from the same starting inventory twice. Assemble must issue just the missing quantities with zero trader purchases. Explicit Quick Buy must behave as it does with Choo² alone. In a mixed plan, only locked shortages reach Assemble's purchase window. Check both labels on pooled rows, with trader filters and price tags toggled and with Choo² absent.
 

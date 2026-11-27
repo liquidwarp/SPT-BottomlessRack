@@ -348,11 +348,18 @@ internal static class ModdingPreviewLabelPatch
 public sealed class SelectorRefresh : MonoBehaviour
 {
     private Action _refresh;
-    internal static void Watch(GameObject owner, Action refresh = null)
+    internal static SelectorRefresh Watch(GameObject owner, Action refresh = null)
     {
         var watcher = owner.GetComponent<SelectorRefresh>();
         if (watcher == null) watcher = owner.AddComponent<SelectorRefresh>();
         watcher._refresh = refresh;
+        watcher.enabled = true;
+        return watcher;
+    }
+    internal void StopWatching()
+    {
+        enabled = false;
+        _refresh = null;
     }
     private void OnEnable()
     {

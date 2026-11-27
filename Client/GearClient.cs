@@ -27,6 +27,7 @@ internal static class GearClient
     private static int _revision = -1;
     private static SpawnSession _requests;
     private static Task _loading;
+    internal static Task CurrentRead => _loading ?? Task.CompletedTask;
     internal static bool Ready => _revision >= 0 && OutOfRaid;
     internal static bool OutOfRaid => !(Singleton<AbstractGame>.Instantiated && Singleton<AbstractGame>.Instance.InRaid);
 

@@ -63,6 +63,16 @@ $expectedMethods = [ordered]@{
     'EFT.UI.InventoryScreen' = @(
         'System.Void Show(EFT.UI.InventoryScreen/InventoryScreenController)'
     )
+    'EFT.UI.TraderDealScreen' = @(
+        'System.Void Show(EFT.Trading.Trader,EFT.Profile,EFT.InventoryLogic.InventoryController,EFT.UI.ETradeMode,EFT.UI.ItemUiContext,EFT.Quests.QuestController,System.Collections.Generic.IEnumerable`1<EFT.Trading.Trader>)'
+        'System.Boolean IsValidDeal(System.Boolean&,AutoExchange/AutoExchangeData&)'
+        'System.Threading.Tasks.Task OnDealButtonClickAsync()'
+    )
+    'EFT.UI.DragAndDrop.TradingItemView' = @(
+        'System.Void SetPrice(System.Nullable`1<EFT.Trading.Trader/ItemPrice>)'
+        'System.Void ShowTooltip()'
+    )
+    'EFT.Trading.Assortment' = @('System.Void SelectItem(EFT.InventoryLogic.Item)')
     'EFT.UI.WeaponModding.WeaponModdingScreen' = @(
         'System.Void Show(EFT.InventoryLogic.Item,EFT.InventoryLogic.InventoryController,EFT.InventoryLogic.CompoundItem[])'
     )
@@ -139,6 +149,8 @@ try {
         'EFT.UI.WeaponModding.ModdingScreenSlotView' = @('_locked')
         'EFT.UI.EquipItemWindow' = @('_slot', '_viewList', '_placeHolder')
         'EFT.UI.DragAndDrop.GridItemView' = @('TagName', '_tagColor', 'Caption')
+        'EFT.UI.DragAndDrop.TradingItemView' = @('_traderAssortment', '_price', '_currency', '_schemeIcon')
+        'EFT.UI.TraderDealScreen' = @('_autoExchange', '_traderGridView')
         'EFT.UI.ItemObserveScreen`2' = @('Item', 'RefreshingWeapon', '_manipulation')
         'EFT.UI.EditBuildScreen' = @('_itemBody', '_playerItems', '_acceptableWeaponBodies')
         'EFT.UI.EquipmentBuildsScreen' = @('_currentBuild', '_realInventoryController', '_isApplying')
@@ -177,6 +189,14 @@ try {
     $notify = [Array]::FindIndex($calls, [Predicate[object]]{ param($m) $m -like '*Comfort.Common.Callback::Invoke(*' })
     if ($apply -lt 0 -or $notify -le $apply) { throw 'EFT no longer applies the inventory delta before the immediate callback.' }
     Write-Output 'PASS  Selector field bindings and the inventory acknowledgement order match the installed client.'
+
+    $deal = $module.GetType('EFT.UI.TraderDealScreen/CG_OnDealButtonClickAsync').Methods | Where-Object Name -ceq 'MoveNext'
+    $steps = $deal.Body.Instructions.Operand | Where-Object {
+        $_ -is [Mono.Cecil.MethodReference] -and $_.Name -cin 'IsValidDeal','ApproveAutoExchange','ExchangeCurrency','Purchase'
+    }
+    if (($steps.Name -join ',') -cne 'IsValidDeal,ApproveAutoExchange,ExchangeCurrency,Purchase') {
+        throw 'The trader Deal action changed its validation or payment order.'
+    }
 } finally {
     $module.Dispose()
 }
@@ -190,7 +210,7 @@ if ($ClientAssembly) {
     $plugin = [Mono.Cecil.ModuleDefinition]::ReadModule($client.Location)
     try {
         if ($null -ne $plugin.GetType("$namespace.CataloguePanel")) { throw 'The client still includes the standalone stash menu.' }
-        foreach ($name in 'StashPatch', 'ModdingScreenPatch', 'BuildScreenPatch') {
+        foreach ($name in 'StashPatch', 'ModdingScreenPatch', 'BuildScreenPatch', 'TraderPurchases') {
             $entry = $plugin.GetType("$namespace.$name").Methods | Where-Object Name -CEQ 'Postfix'
             $calls = @($entry.Body.Instructions.Operand | Where-Object { $_ -is [Mono.Cecil.MethodReference] })
             if ($calls.FullName -cnotcontains "System.Void $namespace.GearClient::Enter(EFT.InventoryLogic.InventoryController)") {
@@ -209,6 +229,13 @@ if ($ClientAssembly) {
             $construction.FullName -cnotcontains 'System.Void EFT.InventoryLogic.Slot::Add(EFT.InventoryLogic.Item)') {
             throw 'Weapon previews must bind the server recipe to detached EFT items and slots.'
         }
+        $exchange = $plugin.GetType("$namespace.TraderPurchases").NestedTypes | Where-Object Name -like '<PurchaseWithExchange>d__*'
+        $steps = ($exchange.Methods | Where-Object Name -ceq 'MoveNext').Body.Instructions.Operand | Where-Object {
+            $_ -is [Mono.Cecil.MethodReference] -and $_.Name -cin 'ApproveAutoExchange','StillSelected','ExchangeCurrency','Purchase'
+        }
+        if (($steps.Name -join ',') -cne 'ApproveAutoExchange,StillSelected,ExchangeCurrency,StillSelected,Purchase') {
+            throw 'A trader exchange must recheck the quoted selection before converting funds and before buying.'
+        }
     } finally {
         $plugin.Dispose()
     }
@@ -223,6 +250,12 @@ if ($ClientAssembly) {
         EquipmentPresets = @([EFT.UI.EquipmentBuildsScreen], 'EquipBuild')
         BuildAssembly = @([EFT.UI.EditBuildScreen], 'TryToAssembleBuild')
         UnlockedWeaponBodyPatch = @([EFT.UI.EditBuildScreen], 'CheckForVitalParts')
+        TraderPurchases = @([EFT.UI.TraderDealScreen], 'Show')
+        'TraderPurchases+Price' = @([EFT.UI.DragAndDrop.TradingItemView], 'SetPrice')
+        'TraderPurchases+Hover' = @([EFT.UI.DragAndDrop.TradingItemView], 'ShowTooltip')
+        'TraderPurchases+Select' = @([EFT.Trading.Assortment], 'SelectItem')
+        'TraderPurchases+Validate' = @([EFT.UI.TraderDealScreen], 'IsValidDeal')
+        'TraderPurchases+ExchangeDeal' = @([EFT.UI.TraderDealScreen], 'OnDealButtonClickAsync')
     }
     foreach ($binding in $selectorHooks.GetEnumerator()) {
         $patch = $client.GetType("$namespace.$($binding.Key)", $true)
@@ -320,6 +353,97 @@ if ($ClientAssembly) {
     Write-Output 'PASS  An earned template labels both Edit Build item instances and leaves ordinary Modding rows alone.'
     Write-Output 'PASS  Both dropdown wrappers intercept only the exact live preview and pass the same-template owned item and Edit Build through.'
     Write-Output 'PASS  Edit Build keeps the native item or appends one earned choice. Live Modding keeps owned and catalogue rows distinct.'
+
+    # Exercise the actual trader hooks with managed EFT objects, without constructing Unity views.
+    $privateInstance = [Reflection.BindingFlags]'Instance, NonPublic'
+    $shopType = $client.GetType("$namespace.TraderPurchases", $true)
+    $activeShop = $shopType.GetField('_current', $flags)
+    $shop = [Runtime.CompilerServices.RuntimeHelpers]::GetUninitializedObject($shopType)
+    $stockView = [Runtime.CompilerServices.RuntimeHelpers]::GetUninitializedObject([EFT.UI.DragAndDrop.TradingItemView])
+    $screen = [Runtime.CompilerServices.RuntimeHelpers]::GetUninitializedObject([EFT.UI.TraderDealScreen])
+    $stockGrid = [Runtime.CompilerServices.RuntimeHelpers]::GetUninitializedObject([EFT.UI.DragAndDrop.TradingGridView])
+    $screen._traderGridView = $stockGrid
+    $container = [EFT.UI.DragAndDrop.ItemView].GetField('Container')
+    $container.SetValue($stockView, $stockGrid)
+    $viewItem = [EFT.UI.DragAndDrop.ItemView].GetField('_item', $privateInstance)
+    $trader = [Runtime.CompilerServices.RuntimeHelpers]::GetUninitializedObject([EFT.Trading.Trader])
+    $assort = $trader._currentAssortment = [Runtime.CompilerServices.RuntimeHelpers]::GetUninitializedObject([EFT.Trading.Assortment])
+    $read = [Threading.Tasks.TaskCompletionSource[bool]]::new()
+    $shopType.GetField('_screen', $privateInstance).SetValue($shop, $screen)
+    $shopType.GetField('_trader', $privateInstance).SetValue($shop, $trader)
+    $shopType.GetField('_firstRead', $privateInstance).SetValue($shop, $read.Task)
+    $marked = $shopType.GetMethod('Marked', $flags)
+    $select = $client.GetType("$namespace.TraderPurchases+Select").GetMethod('Prefix', $flags)
+    $validate = $client.GetType("$namespace.TraderPurchases+Validate").GetMethod('Prefix', $flags)
+    $canDeal = { $validate.Invoke($null, [object[]]@($screen, $false, $null, $false)) }
+    $stillSelected = $shopType.GetMethod('StillSelected', $privateInstance)
+    $medkitTemplate = [Runtime.CompilerServices.RuntimeHelpers]::GetUninitializedObject([EFT.InventoryLogic.ItemTemplate])
+    $medkitTemplate._id = [EFT.MongoID]'000000000000000000000031'
+    $medkit = [EFT.InventoryLogic.Item]::new('000000000000000000000032', $medkitTemplate)
+    $previousShop = $activeShop.GetValue($null)
+    try {
+        $activeShop.SetValue($null, $shop)
+        $assort._selectedItem = $medkit
+        $revision.SetValue($null, -1)
+        if (& $canDeal) { throw 'Deal accepted a purchase during the first catalogue read.' }
+        $read.SetResult($false)
+        if (-not (& $canDeal)) { throw 'A failed first read disabled a fresh priced purchase.' }
+        $revision.SetValue($null, 1)
+        $null = $unlocks.Add($pickerItem.StringTemplateId)
+        $assort._schemes = [Collections.Generic.Dictionary[string,EFT.BarterScheme]]::new()
+        # Two offers for the same earned template, then the reverse barter.
+        foreach ($offer in @(@($pickerItem, '5449016a4bdc2d6f028b456f', $true),
+                             @($fittedItem, $medkit.StringTemplateId, $true),
+                             @($medkit, $pickerItem.StringTemplateId, $false))) {
+            $outputItem, $paymentTemplate, $blocked = $offer
+            $scheme = [EFT.BarterScheme]::new()
+            $variant = [EFT.BarterVariant]::new()
+            $variant.Add([EFT.BarterTemplate]@{ _tpl = $paymentTemplate; count = 1 })
+            $scheme.Add($variant)
+            $assort._schemes.Add($outputItem.Id, $scheme)
+            $assort._selectedItem = $outputItem
+            $viewItem.SetValue($stockView, $outputItem)
+            $selection = [object[]]@($assort, $outputItem)
+            $select.Invoke($null, $selection)
+            if ($marked.Invoke($null, @($stockView, $assort)) -ne $blocked -or
+                ($null -eq $selection[1]) -ne $blocked -or (& $canDeal) -eq $blocked) {
+                throw "Trader price, selection or Deal disagrees for output $($outputItem.Id), payment $paymentTemplate."
+            }
+        }
+        $assort._currentQuantity = 2
+        $quote = [object[]]@($assort, $medkit, 2)
+        if (!$stillSelected.Invoke($shop, $quote)) { throw 'A current exchange quote was rejected.' }
+        $assort._currentQuantity = 3
+        if ($stillSelected.Invoke($shop, $quote)) { throw 'A quote survived a change to the purchase quantity.' }
+        $assort._currentQuantity = 2
+        $assort._selectedItem = $pickerItem
+        if ($stillSelected.Invoke($shop, $quote)) { throw 'A quote survived a change to the selected offer.' }
+        $assort._selectedItem = $medkit
+        $null = $unlocks.Add($medkit.StringTemplateId)
+        if ($stillSelected.Invoke($shop, $quote)) { throw 'A pending exchange could spend after the output unlocked.' }
+        $otherAssort = [Runtime.CompilerServices.RuntimeHelpers]::GetUninitializedObject([EFT.Trading.Assortment])
+        $otherSelection = [object[]]@($otherAssort, $medkit)
+        $select.Invoke($null, $otherSelection)
+        if ($marked.Invoke($null, @($stockView, $otherAssort)) -or $null -eq $otherSelection[1]) {
+            throw 'Another assortment was affected by the active trader.'
+        }
+        $container.SetValue($stockView, $null)
+        if ($marked.Invoke($null, @($stockView, $assort))) { throw 'A player-owned view received a trader price label.' }
+        $container.SetValue($stockView, $stockGrid)
+        $screen.TradeMode = [EFT.UI.ETradeMode]::Sale
+        if ($marked.Invoke($null, @($stockView, $assort)) -or -not (& $canDeal)) { throw 'The Sell tab was restricted.' }
+        $activeShop.SetValue($null, $null)
+        [EFT.Trading.Trader].GetField('Id').SetValue($trader, '579dc571d53a0658a154fbec')
+        $shopType.GetMethod('Postfix', $flags).Invoke($null, [object[]]@($screen, $trader, $null, $null, $null))
+        if ($null -ne $activeShop.GetValue($null)) { throw 'Fence activated the shop restriction.' }
+    } finally {
+        $activeShop.SetValue($null, $previousShop)
+        $null = $unlocks.Remove($pickerItem.StringTemplateId)
+        $null = $unlocks.Remove($medkit.StringTemplateId)
+        $revision.SetValue($null, $originalRevision)
+    }
+    Write-Output 'PASS  Trader costs, selection and Deal follow the offered template for cash and both barter directions.'
+    Write-Output 'PASS  Catalogue loading, a stale exchange quote, the stash, Sell and Fence use the intended purchase rules.'
 
     $spares = $client.GetType("$namespace.SpareMagazines", $true)
     $binding = $spares.GetCustomAttributes([HarmonyLib.HarmonyPatch], $false)[0].info

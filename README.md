@@ -11,6 +11,7 @@ Use EFT’s equipment picker, modding, builds and presets views to seamlessly cr
 | Edit Build | Assemble a weapon preset to use owned parts and automatically create missing unlocked parts. An unlocked weapon body can also be supplied. EFT offers to buy any remaining locked parts as usual. |
 | Weapon context menu | Right-click an owned weapon and choose **Spawn spare magazines** to add empty copies of its fitted magazine to your main stash. A 1×1 magazine gives **3** spares, a 1×2 or 1×3 gives **2**, and every other shape gives **1**. A notification confirms how many arrived. |
 | Equipment presets | Equip a saved loadout to use your worn and stored items first. Missing unlocked gear is created automatically. Only the remaining shortages appear in the purchase window. |
+| Trader Buy tab (except Fence) | If you can get the offered item for free from your inventory, the trader marks it **Unlocked** and you can’t buy or barter for it. Hover to see how to equip it. You can use unlocked gear to pay for other barter trades though. |
 
 Weapons use their published default build when one is available and usable. Otherwise the mod chooses the complete trader offer with the fewest fitted parts, then the lowest loyalty level. A weapon with no complete offer can be issued bare if it already has every vital part. Earning a weapon also earns its standard parts, including on existing profiles.
 
