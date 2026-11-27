@@ -14,34 +14,35 @@ internal sealed class TraderPurchases
     private const string FenceId = "579dc571d53a0658a154fbec";
     private const string Label = "Unlocked";
     private static TraderPurchases _current;
-    internal static Trader CurrentTrader => _current?._trader;
+    private static readonly AccessTools.FieldRef<TraderDealScreen, Trader> ScreenTrader =
+        AccessTools.FieldRefAccess<TraderDealScreen, Trader>("_trader");
+    internal static Trader CurrentTrader => _current?.Trader;
     private readonly TraderDealScreen _screen;
-    private readonly Trader _trader;
+    private Trader Trader => ScreenTrader(_screen);
     private readonly ItemUiContext _ui;
     private Task _catalogueRead;
     private SelectorRefresh _watcher;
     private Task _pendingExchange;
 
-    private TraderPurchases(TraderDealScreen screen, Trader trader, ItemUiContext ui)
+    private TraderPurchases(TraderDealScreen screen, ItemUiContext ui)
     {
         _screen = screen;
-        _trader = trader;
         _ui = ui;
     }
 
     // Set the sale scope before EFT binds its first quote, including at Fence.
-    private static void Prefix(TraderDealScreen __instance, Trader trader, ItemUiContext itemUiContext, UIParent ___UI)
+    private static void Prefix(TraderDealScreen __instance, ItemUiContext itemUiContext, UIParent ___UI)
     {
         _current?.Close();
         if (!GearClient.OutOfRaid) return;
-        _current = new TraderPurchases(__instance, trader, itemUiContext);
+        _current = new TraderPurchases(__instance, itemUiContext);
         ___UI.AddDisposable(_current.Close);
     }
 
     private static void Postfix(InventoryController stashController)
     {
         var shop = _current;
-        if (shop == null || shop._trader.Id == FenceId) return;
+        if (shop == null || shop.Trader.Id == FenceId) return;
         GearClient.Enter(stashController);
         shop._watcher = SelectorRefresh.Watch(shop._screen.gameObject, shop.Refresh);
         shop._screen.OnTradingModeChanged += shop.ModeChanged;
@@ -65,7 +66,7 @@ internal sealed class TraderPurchases
     private async Task FinishRead(Task read)
     {
         await read;
-        if (_current == this && _trader.CurrentAssortment != null)
+        if (_current == this && Trader.CurrentAssortment != null)
             _screen.UpdateDealButton();
     }
 
@@ -107,7 +108,7 @@ internal sealed class TraderPurchases
 
     private void Refresh()
     {
-        var assortment = _trader.CurrentAssortment;
+        var assortment = Trader.CurrentAssortment;
         if (assortment == null) return;
         if (BuyTab == this && Unlocked(assortment.SelectedItem)) assortment.SelectItem(null);
         Repaint(closing: false);
@@ -134,7 +135,7 @@ internal sealed class TraderPurchases
 
     private static bool Marked(TradingItemView view, Assortment assortment) =>
         BuyTab is { } shop && ReferenceEquals(view.Container, shop._screen._traderGridView) &&
-        ReferenceEquals(assortment, shop._trader.CurrentAssortment) && Unlocked(view.Item);
+        ReferenceEquals(assortment, shop.Trader.CurrentAssortment) && Unlocked(view.Item);
 
     [HarmonyPatch(typeof(TradingItemView), nameof(TradingItemView.SetPrice))]
     private static class Price
@@ -169,7 +170,7 @@ internal sealed class TraderPurchases
     {
         private static void Prefix(Assortment __instance, ref Item item)
         {
-            if (BuyTab is { } shop && ReferenceEquals(__instance, shop._trader.CurrentAssortment) && Unlocked(item))
+            if (BuyTab is { } shop && ReferenceEquals(__instance, shop.Trader.CurrentAssortment) && Unlocked(item))
                 item = null; // Native deselection clears the old requirements and disables Deal.
         }
     }
@@ -181,7 +182,7 @@ internal sealed class TraderPurchases
             ref AutoExchange.AutoExchangeData exchangeData, ref bool __result)
         {
             if (BuyTab is not { } shop || !ReferenceEquals(__instance, shop._screen)) return true;
-            var item = shop._trader.CurrentAssortment?.SelectedItem;
+            var item = shop.Trader.CurrentAssortment?.SelectedItem;
             if (item != null && !shop.WaitingForCatalogue && !Unlocked(item)) return true;
             withAutoExchange = false;
             exchangeData = default;
@@ -201,7 +202,7 @@ internal sealed class TraderPurchases
                 __result = shop._pendingExchange;
                 return false;
             }
-            var assortment = shop._trader.CurrentAssortment;
+            var assortment = shop.Trader.CurrentAssortment;
             // A funded cash deal or ordinary barter submits synchronously after IsValidDeal.
             if (assortment != null && assortment.IsValid) return true;
             if (assortment == null || !__instance.IsValidDeal(out var needsExchange, out var quote))
@@ -216,7 +217,7 @@ internal sealed class TraderPurchases
     }
 
     private bool StillSelected(Assortment assortment, Item item, int quantity) =>
-        BuyTab == this && ReferenceEquals(assortment, _trader.CurrentAssortment) &&
+        BuyTab == this && ReferenceEquals(assortment, Trader.CurrentAssortment) &&
         item != null && ReferenceEquals(item, assortment.SelectedItem) && quantity == assortment.CurrentQuantity &&
         !assortment.TransactionInProgress && !WaitingForCatalogue && !Unlocked(item);
 

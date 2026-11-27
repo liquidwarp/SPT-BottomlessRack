@@ -152,7 +152,7 @@ try {
         'EFT.UI.EquipItemWindow' = @('_slot', '_viewList', '_placeHolder')
         'EFT.UI.DragAndDrop.GridItemView' = @('TagName', '_tagColor', 'Caption')
         'EFT.UI.DragAndDrop.TradingItemView' = @('_traderAssortment', '_price', '_currency', '_schemeIcon')
-        'EFT.UI.TraderDealScreen' = @('_autoExchange', '_traderGridView')
+        'EFT.UI.TraderDealScreen' = @('_autoExchange', '_traderGridView', '_trader')
         'EFT.UI.ItemObserveScreen`2' = @('Item', 'RefreshingWeapon', '_manipulation')
         'EFT.UI.EditBuildScreen' = @('_itemBody', '_playerItems', '_acceptableWeaponBodies')
         'EFT.UI.EquipmentBuildsScreen' = @('_currentBuild', '_realInventoryController', '_isApplying', '_equipmentContext', '_equipmentTabs')
@@ -524,7 +524,8 @@ public static class PurchaseFixture
     $assort = $trader._currentAssortment = [Runtime.CompilerServices.RuntimeHelpers]::GetUninitializedObject([EFT.Trading.Assortment])
     $read = [Threading.Tasks.TaskCompletionSource[bool]]::new()
     $shopType.GetField('_screen', $privateInstance).SetValue($shop, $screen)
-    $shopType.GetField('_trader', $privateInstance).SetValue($shop, $trader)
+    $screenTrader = [EFT.UI.TraderDealScreen].GetField('_trader', $privateInstance)
+    $screenTrader.SetValue($screen, $trader)
     $shopType.GetField('_catalogueRead', $privateInstance).SetValue($shop, $read.Task)
     $marked = $shopType.GetMethod('Marked', $flags)
     $select = $client.GetType("$namespace.TraderPurchases+Select").GetMethod('Prefix', $flags)
@@ -630,8 +631,11 @@ public static class PurchaseFixture
         # Rebinding the same trader must survive cleanup from the previous screen lifetime.
         [EFT.Trading.Trader].GetField('Id').SetValue($trader, '579dc571d53a0658a154fbec')
         $screen.TradeMode = [EFT.UI.ETradeMode]::Purchase
-        $openShop.Invoke($null, [object[]]@($screen, $trader, $null, $oldLifetime))
-        $openShop.Invoke($null, [object[]]@($screen, $trader, $null, $lifetime))
+        $openShop.Invoke($null, [object[]]@($screen, $null, $oldLifetime))
+        $screenTrader.SetValue($screen, $null)
+        $openShop.Invoke($null, [object[]]@($screen, $null, $lifetime))
+        # EFT assigns the trader inside Show before binding the first quote.
+        $screenTrader.SetValue($screen, $trader)
         $oldLifetime.Dispose()
         if ($quoteCheck.Invoke($null, [object[]]@($trader, $part, $null))) { throw 'Fence lost its sale scope before binding stock.' }
         $shopType.GetMethod('Postfix', $flags).Invoke($null, [object[]]@($null))
