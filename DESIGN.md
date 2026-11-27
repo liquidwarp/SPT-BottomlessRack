@@ -1,4 +1,4 @@
-# Unlock Gear Progression
+# BottomlessRack
 
 This design gives each PMC in SPT 4.1 a permanent equipment catalogue. Once a trader other than Fence offers a piece of gear to that PMC, or the player brings one home, the player can create fresh copies through EFT’s equipment picker, Modding, and Edit Build. The unlock survives the loss of the last copy.
 
@@ -115,7 +115,7 @@ The SPT server owns unlocks and item creation. The BepInEx plugin adds unlocked 
 
 A PMC can claim an optic by mail and lose their only copy in a raid. If none of their traders offer it, the next stash and assort scan has no way to recover that unlock. Saving it in the PMC’s profile keeps it earned. Restoring a backup brings back the matching inventory and unlocks, a wipe starts a fresh catalogue, and each Fika player keeps their own progression.
 
-Store a single `net.liquidwarp.unlockgearprogression` entry in `SptProfile.SptData` extension data with a schema version, the set of earned template IDs, and the most recent spawn receipt. Each template is recorded once. Saving the receipt alongside inventory prevents a lost reply from turning one request into two copies. Keep the selector cache and its revision in memory and fetch a fresh catalogue on reconnect. Keep missing mod templates dormant so reinstalling an item mod restores its entries.
+Store a single `net.liquidwarp.bottomlessrack` entry in `SptProfile.SptData` extension data with a schema version, the set of earned template IDs, and the most recent spawn receipt. Each template is recorded once. Saving the receipt alongside inventory prevents a lost reply from turning one request into two copies. Keep the selector cache and its revision in memory and fetch a fresh catalogue on reconnect. Keep missing mod templates dormant so reinstalling an item mod restores its entries.
 
 A separate file keyed to the character would also work. It would need to be backed up, restored, and reset together with the profile, even when a wipe reuses the same account. Using SPT’s existing save path keeps those operations together.
 

@@ -19,7 +19,7 @@ using SPTarkov.Server.Core.Servers;
 using SPTarkov.Server.Core.Services.Profile;
 using SPTarkov.Server.Core.Utils;
 
-namespace Liquidwarp.UnlockGearProgression.Server;
+namespace Liquidwarp.BottomlessRack.Server;
 
 [Injectable(InjectionType.Singleton)]
 public sealed class GearService(ProfileHelper profiles, GearDefinitions gear, TradersTable traders, TraderAssortHelper assorts,

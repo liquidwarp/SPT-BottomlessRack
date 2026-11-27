@@ -1,6 +1,6 @@
 using System.Text.Json;
 using HarmonyLib;
-using Liquidwarp.UnlockGearProgression.Server;
+using Liquidwarp.BottomlessRack.Server;
 using NUnit.Framework;
 using SPTarkov.Server.Core.DI.Routing;
 using SPTarkov.Server.Core.Models.Common;
@@ -8,7 +8,7 @@ using SPTarkov.Server.Core.Models.Eft.Common.Request;
 using SPTarkov.Server.Core.Models.Eft.ItemEvent;
 using SPTarkov.Server.Core.Models.Enums;
 
-namespace Liquidwarp.UnlockGearProgression.Tests;
+namespace Liquidwarp.BottomlessRack.Tests;
 
 public sealed class IntegrationTests : ServerFixture
 {
@@ -36,7 +36,6 @@ public sealed class IntegrationTests : ServerFixture
     [Test]
     public async Task StockEventQueueObservesClaimThenDiscardAndSerializesAConcurrentReplay()
     {
-        const string guid = "net.liquidwarp.unlockgearprogression";
         var mod = new Mod(Service, TestLog.For<Mod>());
         try
         {
@@ -79,6 +78,6 @@ public sealed class IntegrationTests : ServerFixture
             using var refused = JsonDocument.Parse(await stock.HandleEvents("", invalid, Session, default));
             Assert.That(refused.RootElement.GetProperty("data").GetProperty("warnings")[0].GetProperty("index").GetInt32(), Is.EqualTo(1));
         }
-        finally { new Harmony(guid).UnpatchSelf(); }
+        finally { new Harmony(MyModInfo.MOD_GUID).UnpatchSelf(); }
     }
 }

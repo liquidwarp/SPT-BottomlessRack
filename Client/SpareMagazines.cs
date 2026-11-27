@@ -8,7 +8,7 @@ using EFT.Utilities;
 using HarmonyLib;
 using UnityEngine;
 
-namespace Liquidwarp.UnlockGearProgression.Client;
+namespace Liquidwarp.BottomlessRack.Client;
 
 [HarmonyPatch(typeof(InventoryItemContextInteractions), MethodType.Constructor,
     typeof(ItemContext), typeof(ItemUiContext), typeof(CompoundItem[]), typeof(Action))]

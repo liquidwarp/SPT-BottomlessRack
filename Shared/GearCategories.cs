@@ -5,7 +5,7 @@ using TemplateId = SPTarkov.Server.Core.Models.Common.MongoId;
 using TemplateId = EFT.MongoID;
 #endif
 
-namespace Liquidwarp.UnlockGearProgression;
+namespace Liquidwarp.BottomlessRack;
 
 internal static class GearCategories
 {

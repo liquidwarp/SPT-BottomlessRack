@@ -1,14 +1,14 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Path = System.IO.Path;
-using Liquidwarp.UnlockGearProgression.Server;
+using Liquidwarp.BottomlessRack.Server;
 using NUnit.Framework;
 using SPTarkov.Common.Extensions;
 using SPTarkov.Server.Core.Models.Common;
 using SPTarkov.Server.Core.Models.Eft.Common.Tables;
 using SPTarkov.Server.Core.Models.Enums;
 
-namespace Liquidwarp.UnlockGearProgression.Tests;
+namespace Liquidwarp.BottomlessRack.Tests;
 
 public sealed class WeaponRecipeTests : ServerFixture
 {
@@ -234,7 +234,7 @@ public sealed class WeaponRecipeTests : ServerFixture
     [Test]
     public async Task InstalledMsgaOffersProduceTheMp700ShortyAndWoodMp12()
     {
-        var mod = Path.Combine(Environment.GetEnvironmentVariable("UGP_TEST_SPT_PATH")!, "SPT_Runtime/user/mods/makeshotgunsgreatagain/db");
+        var mod = Path.Combine(Environment.GetEnvironmentVariable("BOTTOMLESSRACK_TEST_SPT_PATH")!, "SPT_Runtime/user/mods/makeshotgunsgreatagain/db");
         if (!Directory.Exists(mod)) Assert.Ignore("Optional Make Shotguns Great Again fixture is not installed.");
         const string full = "6910e86bbcb9218635891ae2", shorty = "6a8103d9e2f14c7b9a5d3e01", mp12 = "691098356f593043295f6ddc";
         // Apply the six installed template overlays in memory. Deliberately omit the MP-12 global default.

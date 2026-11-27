@@ -6,7 +6,7 @@ using SPTarkov.Server.Core.Models.Eft.Common;
 using SPTarkov.Server.Core.Models.Eft.Common.Request;
 using SPTarkov.Server.Core.Utils;
 
-namespace Liquidwarp.UnlockGearProgression.Server;
+namespace Liquidwarp.BottomlessRack.Server;
 
 public record SpawnRequest : BaseInteractionRequestData
 {

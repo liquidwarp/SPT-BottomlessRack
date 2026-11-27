@@ -1,5 +1,5 @@
 using System.Text.Json;
-using Liquidwarp.UnlockGearProgression.Server;
+using Liquidwarp.BottomlessRack.Server;
 using NUnit.Framework;
 using SPTarkov.Common.Extensions;
 using SPTarkov.Server.Core.Helpers.Traders;
@@ -9,7 +9,7 @@ using SPTarkov.Server.Core.Models.Eft.Profile;
 using SPTarkov.Server.Core.Models.Enums;
 using SPTarkov.Server.Core.Models.Enums.Hideout;
 
-namespace Liquidwarp.UnlockGearProgression.Tests;
+namespace Liquidwarp.BottomlessRack.Tests;
 
 public sealed class ProgressionTests : ServerFixture
 {
@@ -210,7 +210,7 @@ public sealed class ProgressionTests : ServerFixture
         Assert.That(latest.SptData!.GetExtensionData().ContainsKey("unrelated.mod"), Is.True);
         Assert.That(UnlockLedger.Read(Json.Deserialize<SptProfile>(earlier)!).Templates, Is.Empty);
         Assert.That(JsonDocument.Parse(Json.Serialize(Gear.Create(Magazine)[0])!).RootElement.GetRawText(),
-            Does.Not.Contain("unlockgearprogression"));
+            Does.Not.Contain("bottomlessrack"));
     }
 
     [Test]

@@ -4,7 +4,7 @@ using SPTarkov.Server.Core.Models.Eft.Common.Tables;
 using SPTarkov.Server.Core.Models.Eft.ItemEvent;
 using SPTarkov.Server.Core.Models.Enums;
 
-namespace Liquidwarp.UnlockGearProgression.Server;
+namespace Liquidwarp.BottomlessRack.Server;
 
 public sealed class SpawnRejected(string message, BackendErrorCodes code = BackendErrorCodes.None) : Exception(message)
 {

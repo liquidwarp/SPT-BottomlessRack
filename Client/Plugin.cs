@@ -2,7 +2,7 @@ using BepInEx;
 using BepInEx.Logging;
 using HarmonyLib;
 
-namespace Liquidwarp.UnlockGearProgression.Client;
+namespace Liquidwarp.BottomlessRack.Client;
 
 [BepInPlugin(MyModInfo.MOD_GUID, MyModInfo.MOD_NAME, MyModInfo.MOD_VERSION)]
 [BepInDependency("com.SPT.core", MyModInfo.CLIENT_SPT_VERSION)]

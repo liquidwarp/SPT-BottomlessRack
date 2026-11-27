@@ -2,13 +2,14 @@
 
     <PropertyGroup>
         <Authors>Liquidwarp</Authors>
-        <ModName>UnlockGearProgression</ModName>
+        <ModName>BottomlessRack</ModName>
         <ModGuidPrefix>net.liquidwarp</ModGuidPrefix>
         <Version>0.2.0</Version>
         <ClientSPTVersion>4.1.6</ClientSPTVersion>
         <ServerSPTVersion>~4.1.6</ServerSPTVersion>
         <SPTPackageVersion>4.1.6</SPTPackageVersion>
         <Product>$(ModName)</Product>
+        <Description>A seamlessly integrated gear spawner with unlock-based progression</Description>
         <RootNamespace>$(Authors).$(MSBuildProjectName)</RootNamespace>
         <AssemblyName>$(Authors)-$(MSBuildProjectName)</AssemblyName>
         <ModGuid>$(ModGuidPrefix).$(ModName.ToLowerInvariant())</ModGuid>

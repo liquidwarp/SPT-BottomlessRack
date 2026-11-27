@@ -6,7 +6,7 @@ using EFT.InventoryLogic;
 using EFT.UI;
 using HarmonyLib;
 
-namespace Liquidwarp.UnlockGearProgression.Client;
+namespace Liquidwarp.BottomlessRack.Client;
 
 [HarmonyPatch(typeof(EditBuildScreen), nameof(EditBuildScreen.Show), typeof(Item), typeof(Item), typeof(InventoryController), typeof(IEftSession))]
 internal static class BuildScreenPatch

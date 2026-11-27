@@ -2,7 +2,7 @@ using EFT;
 using EFT.UI;
 using HarmonyLib;
 
-namespace Liquidwarp.UnlockGearProgression.Client;
+namespace Liquidwarp.BottomlessRack.Client;
 
 [HarmonyPatch(typeof(BonusController), nameof(BonusController.HasBonus))]
 internal static class WeaponModificationBonusPatch

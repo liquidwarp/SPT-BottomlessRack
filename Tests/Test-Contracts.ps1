@@ -15,7 +15,7 @@ $registrators = [SPTarkov.Server.Core.Utils.Json.IJsonConverterRegistrator[]]@(
 )
 $serializer = [SPTarkov.Server.Core.Utils.JsonUtil]::new($registrators)
 $profileType = [SPTarkov.Server.Core.Models.Eft.Profile.SptProfile]
-$profileKey = 'net.liquidwarp.unlockgearprogression'
+$profileKey = 'net.liquidwarp.bottomlessrack'
 
 $baseline = '{"spt":{"fixture.otherMod":{"enabled":true}}}'
 $profile = $serializer.Deserialize($baseline, $profileType)
@@ -215,7 +215,7 @@ if ($ClientAssembly) {
     $null = [Reflection.Assembly]::LoadFrom($eftPath)
     $null = [Reflection.Assembly]::LoadFrom((Join-Path $installDir 'EscapeFromTarkov_Data/Managed/Comfort.dll'))
     $flags = [Reflection.BindingFlags]'NonPublic, Static'
-    $namespace = 'Liquidwarp.UnlockGearProgression.Client'
+    $namespace = 'Liquidwarp.BottomlessRack.Client'
     $plugin = [Mono.Cecil.ModuleDefinition]::ReadModule($client.Location)
     try {
         if ($null -ne $plugin.GetType("$namespace.CataloguePanel")) { throw 'The client still includes the standalone stash menu.' }

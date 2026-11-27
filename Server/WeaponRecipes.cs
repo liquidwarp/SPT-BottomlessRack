@@ -6,7 +6,7 @@ using SPTarkov.Server.Core.Models.Eft.Common.Tables;
 using SPTarkov.Server.Core.Models.Enums;
 using SPTarkov.Server.Core.Models.Spt.Tables;
 
-namespace Liquidwarp.UnlockGearProgression.Server;
+namespace Liquidwarp.BottomlessRack.Server;
 
 internal sealed class WeaponRecipes(TemplateTable templates, GearDefinitions gear)
 {

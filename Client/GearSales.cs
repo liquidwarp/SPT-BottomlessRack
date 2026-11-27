@@ -6,7 +6,7 @@ using EFT.UI;
 using EFT.UI.Ragfair;
 using HarmonyLib;
 
-namespace Liquidwarp.UnlockGearProgression.Client;
+namespace Liquidwarp.BottomlessRack.Client;
 
 [HarmonyPatch(typeof(TraderDealScreen), nameof(TraderDealScreen.Close))]
 internal static class GearSales

@@ -7,7 +7,7 @@
         <GenerateDependencyFile>true</GenerateDependencyFile>
     </PropertyGroup>
     <ItemGroup>
-        <ProjectReference Include="..\Server\UnlockGearProgression.Server.csproj" />
+        <ProjectReference Include="..\Server\BottomlessRack.Server.csproj" />
         <Compile Include="..\Shared\SpawnSession.cs" />
         <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
         <PackageReference Include="NUnit" Version="4.3.2" />

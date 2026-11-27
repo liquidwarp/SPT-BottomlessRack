@@ -8,7 +8,7 @@ using EFT.InventoryLogic;
 using Newtonsoft.Json;
 using SPT.Common.Http;
 
-namespace Liquidwarp.UnlockGearProgression.Client;
+namespace Liquidwarp.BottomlessRack.Client;
 
 internal static class GearClient
 {

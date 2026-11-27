@@ -1,6 +1,6 @@
 using System.Text.Json;
 using HarmonyLib;
-using Liquidwarp.UnlockGearProgression.Server;
+using Liquidwarp.BottomlessRack.Server;
 using NUnit.Framework;
 using SPTarkov.Server.Core.Callbacks;
 using SPTarkov.Server.Core.Controllers;
@@ -23,7 +23,7 @@ using SPTarkov.Server.Core.Servers.Ws;
 using SPTarkov.Server.Core.Services.Commerce;
 using SPTarkov.Server.Core.Utils;
 
-namespace Liquidwarp.UnlockGearProgression.Tests;
+namespace Liquidwarp.BottomlessRack.Tests;
 
 public sealed class SaleTests : ServerFixture
 {
@@ -31,7 +31,7 @@ public sealed class SaleTests : ServerFixture
     public Task PatchEvents() => new Mod(Service, TestLog.For<Mod>()).OnLoadAsync();
 
     [TearDown]
-    public void UnpatchEvents() => new Harmony("net.liquidwarp.unlockgearprogression").UnpatchSelf();
+    public void UnpatchEvents() => new Harmony(MyModInfo.MOD_GUID).UnpatchSelf();
 
     private TradeItemEventRouter Trades(TradeHelper? trade = null, MailSendService? mail = null)
     {

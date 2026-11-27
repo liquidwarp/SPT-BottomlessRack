@@ -4,7 +4,7 @@ using EFT.InventoryLogic;
 using EFT.UI;
 using HarmonyLib;
 
-namespace Liquidwarp.UnlockGearProgression.Client;
+namespace Liquidwarp.BottomlessRack.Client;
 
 [HarmonyPatch(typeof(MainMenuShowOperation), nameof(MainMenuShowOperation.InventoryController), MethodType.Setter)]
 internal static class MenuCataloguePatch

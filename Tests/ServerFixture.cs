@@ -25,9 +25,9 @@ using SPTarkov.Server.Core.Services.Locales;
 using SPTarkov.Server.Core.Utils;
 using SPTarkov.Server.Core.Utils.Cloners;
 using SPTarkov.Server.Core.Utils.Json;
-using Liquidwarp.UnlockGearProgression.Server;
+using Liquidwarp.BottomlessRack.Server;
 
-namespace Liquidwarp.UnlockGearProgression.Tests;
+namespace Liquidwarp.BottomlessRack.Tests;
 
 public class TestLog : DispatchProxy
 {
@@ -76,10 +76,10 @@ public abstract class ServerFixture
     [OneTimeSetUp]
     public void OpenDatabase()
     {
-        var install = Environment.GetEnvironmentVariable("UGP_TEST_SPT_PATH")
+        var install = Environment.GetEnvironmentVariable("BOTTOMLESSRACK_TEST_SPT_PATH")
             ?? throw new InvalidOperationException("Run the suite with build.ps1 -Test.");
         var data = Path.Combine(install, "SPT_Runtime", "SPT_Data");
-        _testDirectory = Directory.CreateTempSubdirectory("UnlockGearTests-").FullName;
+        _testDirectory = Directory.CreateTempSubdirectory("BottomlessRackTests-").FullName;
         Directory.CreateDirectory(Path.Combine(_testDirectory, "user", "profiles"));
         var locales = Directory.CreateDirectory(Path.Combine(_testDirectory, "SPT_Data/database/locales/server"));
         File.Copy(Path.Combine(data, "database/locales/server/en.json"), Path.Combine(locales.FullName, "en.json"));

@@ -1,7 +1,7 @@
 using System.Collections.Generic;
 using SPTarkov.Server.Core.Models.Spt.Mod;
 
-namespace Liquidwarp.UnlockGearProgression.Server;
+namespace Liquidwarp.BottomlessRack.Server;
 
 public record ModMetadata : IModMetadata
 {
@@ -13,7 +13,7 @@ public record ModMetadata : IModMetadata
     public SemanticVersioning.Range SptVersion { get; init; } = new(MyModInfo.SERVER_SPT_VERSION);
     public List<string>? Incompatibilities { get; init; }
     public Dictionary<string, SemanticVersioning.Range>? ModDependencies { get; init; }
-    public string? Url { get; init; } = "https://github.com/liquidwarp/SPT-UnlockGearProgression";
+    public string? Url { get; init; } = "https://github.com/liquidwarp/SPT-BottomlessRack";
     public string License { get; init; } = "MIT";
     public bool HasPrepatcher { get; init; }
 }

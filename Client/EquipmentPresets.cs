@@ -7,7 +7,7 @@ using EFT.UI;
 using EFT.UI.Builds;
 using HarmonyLib;
 
-namespace Liquidwarp.UnlockGearProgression.Client;
+namespace Liquidwarp.BottomlessRack.Client;
 
 [HarmonyPatch(typeof(EquipmentBuildsScreen), nameof(EquipmentBuildsScreen.EquipBuild))]
 internal static class EquipmentPresets

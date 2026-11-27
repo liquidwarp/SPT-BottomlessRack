@@ -1,6 +1,6 @@
 using NUnit.Framework;
 
-namespace Liquidwarp.UnlockGearProgression.Tests;
+namespace Liquidwarp.BottomlessRack.Tests;
 
 public sealed class ClientDecisionTests
 {

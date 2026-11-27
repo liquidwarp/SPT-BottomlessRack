@@ -7,13 +7,13 @@ using WireName = System.Text.Json.Serialization.JsonPropertyNameAttribute;
 using WireName = Newtonsoft.Json.JsonPropertyAttribute;
 #endif
 
-namespace Liquidwarp.UnlockGearProgression;
+namespace Liquidwarp.BottomlessRack;
 
 public static class GearProtocol
 {
-    public const string Catalogue = "/unlockgearprogression/catalogue";
-    public const string Receipt = "/unlockgearprogression/receipt";
-    public const string Action = "UnlockGearProgressionSpawn";
+    public const string Catalogue = "/bottomlessrack/catalogue";
+    public const string Receipt = "/bottomlessrack/receipt";
+    public const string Action = "BottomlessRackSpawn";
 
     // A newly issued weapon includes its factory parts. Let EFT match those against the
     // preset before requesting loose gear from the next inventory simulation.

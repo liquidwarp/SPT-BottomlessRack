@@ -13,7 +13,7 @@ using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
 
-namespace Liquidwarp.UnlockGearProgression.Client;
+namespace Liquidwarp.BottomlessRack.Client;
 
 internal static class PreviewRows
 {

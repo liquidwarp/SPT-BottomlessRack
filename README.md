@@ -1,4 +1,6 @@
-# Unlock Gear Progression
+# BottomlessRack
+
+*A seamlessly integrated gear spawner with unlock-based progression*
 
 Permanently unlock equipment and attachments you extract with, collect in your stash, or gain access to through a trader.
 

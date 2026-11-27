@@ -16,7 +16,7 @@ using SPTarkov.Server.Core.Models.Eft.Match;
 using SPTarkov.Server.Core.Models.Enums;
 using SPTarkov.Server.Core.Services.InRaid;
 
-namespace Liquidwarp.UnlockGearProgression.Server;
+namespace Liquidwarp.BottomlessRack.Server;
 
 [Injectable(TypePriority = OnLoadOrder.Preload + 1)]
 public sealed class Mod(GearService service, ISptLogger<Mod> logger) : IOnLoad

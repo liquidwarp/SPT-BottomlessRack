@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 
-namespace Liquidwarp.UnlockGearProgression;
+namespace Liquidwarp.BottomlessRack;
 
 // One instance per connected client profile. The server's durable receipt decides the outcome,
 // even when the inventory callback was lost or reported a transport error.

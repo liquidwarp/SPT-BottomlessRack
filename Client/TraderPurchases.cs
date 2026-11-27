@@ -5,7 +5,7 @@ using EFT.UI;
 using EFT.UI.DragAndDrop;
 using HarmonyLib;
 
-namespace Liquidwarp.UnlockGearProgression.Client;
+namespace Liquidwarp.BottomlessRack.Client;
 
 [HarmonyPatch(typeof(TraderDealScreen), nameof(TraderDealScreen.Show))]
 internal sealed class TraderPurchases
