@@ -321,6 +321,61 @@ if ($ClientAssembly) {
     Write-Output 'PASS  Both dropdown wrappers intercept only the exact live preview and pass the same-template owned item and Edit Build through.'
     Write-Output 'PASS  Edit Build keeps the native item or appends one earned choice. Live Modding keeps owned and catalogue rows distinct.'
 
+    $spares = $client.GetType("$namespace.SpareMagazines", $true)
+    $binding = $spares.GetCustomAttributes([HarmonyLib.HarmonyPatch], $false)[0].info
+    if ($binding.methodType -ne [HarmonyLib.MethodType]::Constructor -or
+        $binding.declaringType -ne [EFT.UI.InventoryItemContextInteractions] -or
+        $null -eq $binding.declaringType.GetConstructor($binding.argumentTypes)) {
+        throw 'The spare magazine action must bind to the native inventory context menu.'
+    }
+    $request = $spares.GetMethod('RequestedCopies', $flags)
+    $inventoryProperty = $gear.GetProperty('Inventory', $flags)
+    $previousInventory = $inventoryProperty.GetValue($null)
+    $inventory = [Runtime.CompilerServices.RuntimeHelpers]::GetUninitializedObject([EFT.InventoryLogic.BackEndInventoryController])
+    $weapon = [Runtime.CompilerServices.RuntimeHelpers]::GetUninitializedObject([EFT.InventoryLogic.Weapon])
+    $magazine = [Runtime.CompilerServices.RuntimeHelpers]::GetUninitializedObject([EFT.InventoryLogic.Magazine])
+    $magTemplate = [Runtime.CompilerServices.RuntimeHelpers]::GetUninitializedObject([EFT.InventoryLogic.MagazineTemplate])
+    $magId = '000000000000000000000021'
+    $magTemplate._id = [EFT.MongoID]$magId
+    [EFT.InventoryLogic.Item].GetField('<Template>k__BackingField').SetValue($magazine, $magTemplate)
+    $magSlot = [EFT.InventoryLogic.Slot]::new('mod_magazine', [EFT.InventoryLogic.ItemFilter[]]@(), $false, 0)
+    $weapon.Slots = [EFT.InventoryLogic.Slot[]]@($magSlot)
+    $weapon.CurrentAddress = $inventory.CreateItemAddress()
+    $magSlot.ContainedItem = $magazine
+    try {
+        $revision.SetValue($null, 1)
+        $inventoryProperty.SetValue($null, $inventory)
+        $requestSpares = { $request.Invoke($null, @($weapon, $magId)) }
+        if ($null -ne (& $requestSpares)) { throw 'A locked magazine could be copied.' }
+        $null = $unlocks.Add($magId)
+        foreach ($mode in 'ExternalMagazine', 'ExternalMagazineWithInternalReloadSupport') {
+            $magTemplate.ReloadMagType = $mode
+            foreach ($size in @(@(1, 1, 3), @(1, 2, 2), @(2, 1, 2), @(1, 3, 2), @(3, 1, 2), @(2, 2, 1), @(1, 4, 1))) {
+                $magTemplate.Width, $magTemplate.Height, $expected = $size
+                $line = & $requestSpares
+                if ($line.TemplateId -cne $magId -or $line.Quantity -ne $expected) {
+                    throw "Wrong spare magazine request for footprint $($magTemplate.Width)x$($magTemplate.Height)."
+                }
+            }
+        }
+        if ($null -ne $request.Invoke($null, @($weapon, '000000000000000000000022'))) {
+            throw 'A different model could be issued after the weapon menu opened.'
+        }
+        $magTemplate.ReloadMagType = 'InternalMagazine'
+        if ($null -ne (& $requestSpares)) { throw 'An internal magazine could be copied.' }
+        $magTemplate.ReloadMagType = 'ExternalMagazine'
+        $magSlot.ContainedItem = $null
+        if ($null -ne (& $requestSpares)) { throw 'A weapon with an empty slot could issue magazines.' }
+        $magSlot.ContainedItem = $magazine
+        $weapon.CurrentAddress = $null
+        if ($null -ne (& $requestSpares)) { throw 'A weapon outside the PMC inventory could issue magazines.' }
+    } finally {
+        $null = $unlocks.Remove($magId)
+        $inventoryProperty.SetValue($null, $previousInventory)
+        $revision.SetValue($null, $originalRevision)
+    }
+    Write-Output 'PASS  The weapon action requests empty stash copies of the fitted, unlocked magazine according to its footprint.'
+
     $hooks = @(
         $client.GetType("$namespace.WeaponModificationBonusPatch", $true).GetMethod('Postfix', $flags)
         $client.GetType("$namespace.EditBuildTaskBarPatch", $true).GetMethod('Prefix', $flags)

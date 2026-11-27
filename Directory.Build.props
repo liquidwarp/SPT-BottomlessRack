@@ -4,7 +4,7 @@
         <Authors>Liquidwarp</Authors>
         <ModName>UnlockGearProgression</ModName>
         <ModGuidPrefix>net.liquidwarp</ModGuidPrefix>
-        <Version>0.1.0</Version>
+        <Version>0.2.0</Version>
         <ClientSPTVersion>4.1.6</ClientSPTVersion>
         <ServerSPTVersion>~4.1.6</ServerSPTVersion>
         <SPTPackageVersion>4.1.6</SPTPackageVersion>
