@@ -236,6 +236,76 @@ internal static class ModdingRowsPatch
     }
 }
 
+[HarmonyPatch(typeof(WeaponModdingManipulation), nameof(WeaponModdingManipulation.Select),
+    new[] { typeof(Item), typeof(Slot), typeof(bool), typeof(Error) },
+    new[] { ArgumentType.Normal, ArgumentType.Normal, ArgumentType.Normal, ArgumentType.Out })]
+internal static class ReplaceModdingPartPatch
+{
+    // UI Fixes also handles occupied slots. Only one prefix should submit the swap.
+    [HarmonyPriority(Priority.First)]
+    private static bool Prefix(WeaponModdingManipulation __instance, Item item, Slot slot, bool simulate,
+        ref Error error, ref bool __result)
+    {
+        var previous = slot.ContainedItem;
+        if (previous == null || item == null || item == previous || !GearClient.OutOfRaid) return true;
+
+        var controller = __instance.InventoryController;
+        if (ItemManipulator.HasLockedContent(previous, out var locked))
+        {
+            error = locked;
+            __result = false;
+            return false;
+        }
+
+        var inventory = controller.Inventory;
+        var keep = previous is Magazine { Count: > 0 };
+        var source = item.CurrentAddress as GridItemAddress;
+        // A loaded magazine goes straight to the stash, including the cell freed by the incoming part.
+        var destination = keep ? null : inventory.SortingTable?.Grid.FindLocationForItem(previous);
+        destination ??= inventory.Stash?.Grid.FindLocationForItem(previous);
+        if (destination == null && (!keep || source?.Grid == inventory.Stash?.Grid)) destination = source;
+        OperationResult swap = destination == null ? new NoFreeSpaceError(previous)
+            : ItemManipulator.Swap(previous, destination, item, slot.CreateItemAddress(), controller, simulate: true);
+        error = swap.Error;
+        __result = swap.Succeeded;
+        if (!simulate && __result) GearClient.Run(ApplySwap(controller, swap, previous, destination, keep));
+        return false;
+    }
+
+    private static async Task ApplySwap(InventoryController controller, OperationResult swap,
+        Item previous, GridItemAddress destination, bool keep)
+    {
+        var result = await controller.TryRunNetworkTransaction(swap);
+        if (result.Failed)
+        {
+            GearClient.Warn(result.Error);
+            return;
+        }
+        if (!keep) await DiscardAt(controller, previous, destination);
+    }
+
+    internal static async Task DiscardAt(InventoryController controller, Item part, ItemAddress expected)
+    {
+        // A delayed callback must never discard a part the player has since moved or reinstalled.
+        if (!expected.Equals(part.CurrentAddress)) return;
+        // The player may have loaded an empty magazine while the inventory queue was busy.
+        if (part is Magazine { Count: > 0 })
+        {
+            var stash = controller.Inventory.Stash.Grid;
+            if (expected.Container == stash) return;
+            var cell = stash.FindLocationForItem(part);
+            OperationResult move = cell == null ? new NoFreeSpaceError(part)
+                : ItemManipulator.Move(part, cell, controller, simulate: true);
+            var stored = await controller.TryRunNetworkTransaction(move);
+            if (stored.Failed) GearClient.Warn($"Could not move the loaded magazine to your stash: {stored.Error}");
+            return;
+        }
+        var discard = ItemManipulator.Discard(part, controller, simulate: true);
+        var result = await controller.TryRunNetworkTransaction(discard);
+        if (result.Failed) GearClient.Warn($"Could not discard the removed part: {result.Error}");
+    }
+}
+
 [HarmonyPatch(typeof(EditBuildManipulation), nameof(EditBuildManipulation.GetItemCollections))]
 internal static class BuildRowsPatch
 {

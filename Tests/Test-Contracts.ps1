@@ -403,8 +403,12 @@ public static class PurchaseFixture
             [EFT.InventoryLogic.Slot]::new($name, $filters, $false, 'DontMerge')
         })
         $equipment = [EFT.InventoryLogic.InventoryEquipment]::new('000000000000000000000017', $equipmentTemplate)
+        $tableTemplate = [EFT.InventoryLogic.SortingTableTemplate]::new()
+        $tableTemplate.Slots = @([EFT.InventoryLogic.Slot]::new('BuildSlot', $filters, $false, 'DontMerge'))
+        $tableTemplate.Grids = @([EFT.InventoryLogic.Grid]::new('hideout', 0, 0, $true, $true, $filters, $null))
+        $table = [EFT.InventoryLogic.SortingTable]::new('000000000000000000000021', $tableTemplate)
         $bindings = [Collections.Generic.Dictionary[EFT.InventoryLogic.EBoundItem,EFT.MongoID]]::new()
-        $inventory = [EFT.InventoryLogic.Inventory]::new($equipment, $stash, $null, $null, $null, $null,
+        $inventory = [EFT.InventoryLogic.Inventory]::new($equipment, $stash, $null, $null, $table, $null,
             $null, $bindings, $null, [Collections.Generic.List[EFT.MongoID]]::new(), $null, $false)
         $controller = [Runtime.CompilerServices.RuntimeHelpers]::GetUninitializedObject([EFT.InventoryLogic.BackEndInventoryController])
         [EFT.InventoryLogic.InventoryController].GetField('<Inventory>k__BackingField').SetValue($controller, $inventory)
@@ -413,7 +417,7 @@ public static class PurchaseFixture
         $controller._activeEvents = $previewOwner._activeEvents
         $controller._examined = $true
         $controller._restrictionsInLobby = [Collections.Generic.Dictionary[string,int]]::new()
-        $stash.CurrentAddress = $equipment.CurrentAddress = $controller.CreateItemAddress()
+        $table.CurrentAddress = $stash.CurrentAddress = $equipment.CurrentAddress = $controller.CreateItemAddress()
         foreach ($item in $body, $fittedItem) { $null = $stash.Grid.FindLocationForItem($item).Add($item, $false) }
         $live = [EFT.InventoryLogic.WeaponModdingManipulation]::new($controller, [EFT.InventoryLogic.CompoundItem[]]@($stash))
         $edit = [Runtime.CompilerServices.RuntimeHelpers]::GetUninitializedObject([EFT.InventoryLogic.EditBuildManipulation])
@@ -459,6 +463,216 @@ public static class PurchaseFixture
             }
         }
         $null = $slot.RemoveItemWithoutRestrictions()
+        # Execute the transactions locally so the real selector, swap and discard run without a backend session.
+        Add-Type -ReferencedAssemblies @($eftPath, [Comfort.Common.IResult].Assembly.Location,
+            "$PSHOME/ref/mscorlib.dll", "$PSHOME/ref/netstandard.dll", "$PSHOME/ref/System.Collections.dll") -TypeDefinition @'
+using Comfort.Common;
+using Diz.LanguageExtensions;
+using EFT;
+using System.Threading.Tasks;
+public static class ModdingTransactionFixture
+{
+    public static readonly System.Collections.Generic.List<string> Operations = new();
+    public static bool Execute(OperationResult operationResult, ref Task<IResult> __result)
+    {
+        Operations.Add(operationResult.Value.GetType().Name);
+        var result = ((ISyncOperation)operationResult.Value).Execute();
+        if (result.Failed) throw new System.Exception(result.Error.ToString());
+        __result = Task.FromResult<IResult>(SuccessfulResult.New);
+        return false;
+    }
+}
+'@
+        $runTransaction = [EFT.InventoryLogic.ItemController].GetMethod('TryRunNetworkTransaction')
+        $fixture = [ModdingTransactionFixture].GetMethod('Execute')
+        $null = $harmony.Patch($runTransaction, [HarmonyLib.HarmonyMethod]::new($fixture))
+        try {
+            $mountTemplate = [EFT.InventoryLogic.ModTemplate]::new()
+            $mountTemplate._id = [EFT.MongoID]'000000000000000000000023'
+            $mountTemplate.Width = $mountTemplate.Height = $mountTemplate.StackMaxSize = $mountTemplate.StackObjectsCount = 1
+            $mountTemplate.ConflictingItems = [string[]]@()
+            $mountTemplate.Slots = @([EFT.InventoryLogic.Slot]::new('mod_scope', $filters, $false, 'Merge'))
+            $oldMount = [EFT.InventoryLogic.Mod]::new('000000000000000000000022', $mountTemplate)
+            $oldMount.Slots[0].Add($oldSight)
+            $slot.Add($oldMount)
+            $nearbySlot.Add($blocker)
+            if ($live.Select($fittedItem, $slot, $false, [ref]$reason) -or $slot.ContainedItem -ne $oldMount) {
+                throw 'A blocked swap displaced the original mount.'
+            }
+            $null = $nearbySlot.RemoveItemWithoutRestrictions()
+            if (!$live.SelectCheck($fittedItem, $slot, [ref]$reason) -or [ModdingTransactionFixture]::Operations.Count -ne 0) {
+                throw 'Checking a swap submitted an inventory transaction.'
+            }
+            if (!$live.Select($fittedItem, $slot, $false, [ref]$reason) -or $slot.ContainedItem -ne $fittedItem -or
+                $null -ne $oldMount.CurrentAddress -or $oldMount.Slots[0].ContainedItem -ne $oldSight -or
+                ([ModdingTransactionFixture]::Operations -join ',') -cne 'SwapResult,DiscardResult') {
+                throw 'A successful Modding swap must install the selected copy and discard the old tree.'
+            }
+            if (!$live.Select($null, $slot, $false, [ref]$reason) -or $null -ne $slot.ContainedItem -or
+                $fittedItem.CurrentAddress.Container -ne $stash.Grid -or [ModdingTransactionFixture]::Operations[-1] -ne 'MoveResult') {
+                throw 'Explicitly clearing a slot must return the fitted item to storage.'
+            }
+            Write-Output 'PASS  Live Modding discards the replaced tree after a successful swap and keeps explicitly removed parts.'
+
+            # The assembler temporarily detaches a wanted optic while removing its old mount.
+            $weaponTemplate = [EFT.InventoryLogic.WeaponTemplate]::new()
+            $weaponTemplate._id = [EFT.MongoID]'000000000000000000000024'
+            $weaponTemplate.Width = $weaponTemplate.Height = $weaponTemplate.StackMaxSize = $weaponTemplate.StackObjectsCount = 1
+            $weaponTemplate.ConflictingItems = [string[]]@()
+            $weaponTemplate.Slots = $bodyTemplate.Slots
+            $weaponTemplate.Chambers = [EFT.InventoryLogic.Slot[]]@()
+            $weaponTemplate.ammoCaliber = 'Caliber12g'
+            [EFT.InventoryLogic.WeaponTemplate].GetField('weapFireType').SetValue($weaponTemplate,
+                [EFT.InventoryLogic.Weapon+EFireMode[]]@('single'))
+            $receiver = [EFT.InventoryLogic.Weapon]::new('000000000000000000000025', $weaponTemplate)
+            $plan = [EFT.InventoryLogic.Weapon]::new('000000000000000000000026', $weaponTemplate)
+            $null = $stash.Grid.FindLocationForItem($receiver).Add($receiver, $false)
+            $null = $oldMount.Slots[0].RemoveItemWithoutRestrictions()
+            $null = $stash.Grid.Remove($fittedItem, $false)
+            $oldMount.Slots[0].Add($fittedItem)
+            $receiver.Slots[0].Add($oldMount)
+            $plan.Slots[1].Add([EFT.InventoryLogic.Mod]::new('000000000000000000000027', $template))
+            $null = $table.Grid.FindLocationForItem($oldSight).Add($oldSight, $false)
+            $donorTemplate = [EFT.InventoryLogic.ModTemplate]::new()
+            $donorTemplate._id = [EFT.MongoID]'000000000000000000000028'
+            $donorTemplate.Width = $donorTemplate.Height = $donorTemplate.StackMaxSize = $donorTemplate.StackObjectsCount = 1
+            $donorTemplate.ConflictingItems = [string[]]@()
+            $donorTemplate.Slots = $mountTemplate.Slots
+            $donor = [EFT.InventoryLogic.Mod]::new('000000000000000000000029', $donorTemplate)
+            $unused = [EFT.InventoryLogic.Mod]::new('000000000000000000000030', $mountTemplate)
+            $donor.Slots[0].Add($unused)
+            $null = $stash.Grid.FindLocationForItem($donor).Add($donor, $false)
+            $plan.Slots[0].Add([EFT.InventoryLogic.Mod]::new('000000000000000000000031', $donorTemplate))
+            $sources = [EFT.InventoryLogic.Item[]]@($donor)
+            $native = [EFT.InventoryLogic.WeaponAssembler]::AssembleAsync($receiver, $plan, $controller, $sources, $true)
+            if ($native.Failed -or !@($native.Value | Where-Object { $_.Item -eq $oldMount -and $_.To.Container -eq $stash.Grid }).Count) {
+                throw 'Standalone assembly simulation should use normal storage.'
+            }
+            # Installing the donor frees just one cell, reserved for the unrelated item already on the table.
+            $spares = [Collections.Generic.List[EFT.InventoryLogic.Item]]::new()
+            while ($space = $stash.Grid.FindLocationForItem($oldMount)) {
+                $spare = [EFT.InventoryLogic.Mod]::new([Guid]::NewGuid().ToString('N').Substring(8), $mountTemplate)
+                $null = $space.Add($spare, $false)
+                $spares.Add($spare)
+            }
+            $hook = $client.GetType("$namespace.AssemblyDiscards", $true)
+            $arguments = [object[]]@($sources, $null)
+            $hook.GetMethod('Prefix', $flags).Invoke($null, $arguments)
+            $moves = [EFT.InventoryLogic.WeaponAssembler]::AssembleAsync($receiver, $plan, $controller, $arguments[0], $true)
+            if ($moves.Failed -or $receiver.Slots[0].ContainedItem -ne $oldMount -or $oldMount.Slots[0].ContainedItem -ne $fittedItem) {
+                throw "Assembly planning changed the original weapon or failed: $($moves.Error)"
+            }
+            foreach ($move in $moves.Value) {
+                $applied = $move.Execute()
+                if ($applied.Failed) { throw "Could not apply planned move: $($applied.Error)" }
+            }
+            [ModdingTransactionFixture]::Operations.Clear()
+            foreach ($success in $false, $true) {
+                $completion = [object[]]@($controller, $arguments[1], [Threading.Tasks.Task]::FromResult($success))
+                $hook.GetMethod('Postfix', $flags).Invoke($null, $completion)
+                if ($completion[2].GetAwaiter().GetResult() -ne $success) { throw 'Assembly result changed.' }
+                if (!$success -and ($oldMount.CurrentAddress.Container -ne $table.Grid -or [ModdingTransactionFixture]::Operations.Count)) {
+                    throw 'Failed assembly discarded a part or reserved stash space for it.'
+                }
+            }
+            if ($null -ne $oldMount.CurrentAddress -or $null -ne $unused.CurrentAddress -or
+                $receiver.Slots[0].ContainedItem -ne $donor -or $receiver.Slots[1].ContainedItem -ne $fittedItem -or
+                $oldSight.CurrentAddress.Container -ne $stash.Grid -or ([ModdingTransactionFixture]::Operations -join ',') -cne 'DiscardResult,DiscardResult') {
+                throw 'Assemble must discard the displaced mount and donor child, reuse the optic and preserve pre-existing table items.'
+            }
+            Write-Output 'PASS  Edit Build discards only successfully displaced parts, preserves reused attachments and stows unrelated table items.'
+            # Restore the loose copy used by the following picker checks.
+            foreach ($spare in $spares) {
+                if ($spare.CurrentAddress.Container -ne $stash.Grid) { throw 'Assembly touched an unrelated loose copy.' }
+                $null = $stash.Grid.Remove($spare, $false)
+            }
+            $null = $receiver.Slots[1].RemoveItemWithoutRestrictions()
+            $null = $stash.Grid.FindLocationForItem($fittedItem).Add($fittedItem, $false)
+            $null = $stash.Grid.Remove($receiver, $false)
+            $null = $stash.Grid.Remove($oldSight, $false)
+
+            $ammoTemplate = [EFT.InventoryLogic.AmmoTemplate]::new()
+            [EFT.InventoryLogic.ItemTemplate].GetProperty('_id').SetValue($ammoTemplate, [EFT.MongoID]'000000000000000000000032')
+            [EFT.InventoryLogic.ItemTemplate].GetField('StackObjectsCount').SetValue($ammoTemplate, 1)
+            [EFT.InventoryLogic.ItemTemplate].GetField('StackMaxSize').SetValue($ammoTemplate, 50)
+            [EFT.InventoryLogic.AmmoTemplate].GetField('casingSounds').SetValue($ammoTemplate, 'rifle')
+            $magWeapon = [EFT.InventoryLogic.Weapon]::new('000000000000000000000033', $weaponTemplate)
+            $barePlan = [EFT.InventoryLogic.Weapon]::new('000000000000000000000034', $weaponTemplate)
+            $null = $stash.Grid.FindLocationForItem($magWeapon).Add($magWeapon, $false)
+            foreach ($cylinder in $false, $true) {
+                $magTemplate = if ($cylinder) { [EFT.InventoryLogic.CylinderMagazineTemplate]::new() }
+                    else { [EFT.InventoryLogic.MagazineTemplate]::new() }
+                $magTemplate._id = [EFT.MongoID]([Guid]::NewGuid().ToString('N').Substring(8))
+                $magTemplate.Width = $magTemplate.Height = $magTemplate.StackMaxSize = $magTemplate.StackObjectsCount = 1
+                $magTemplate.ConflictingItems = [string[]]@()
+                $magTemplate.Cartridges = @([EFT.InventoryLogic.StackSlot]::new('cartridges', 5, $filters))
+                if ($cylinder) { $magTemplate.Slots = @([EFT.InventoryLogic.Slot]::new('camora_000', $filters, $false, 'Merge')) }
+                foreach ($assemble in $false, $true) {
+                    foreach ($loaded in $false, $true) {
+                        $id = [Guid]::NewGuid().ToString('N').Substring(8)
+                        $mag = if ($cylinder) { [EFT.InventoryLogic.CylinderMagazine]::new($id, $magTemplate) }
+                            else { [EFT.InventoryLogic.Magazine]::new($id, $magTemplate) }
+                        if ($loaded) {
+                            $round = [EFT.InventoryLogic.Ammo]::new([Guid]::NewGuid().ToString('N').Substring(8), $ammoTemplate)
+                            if ($cylinder) { $mag.Camoras[0].Add($round) }
+                            else { $null = $mag.Cartridges.Add($round, $false) }
+                            if ($mag.Count -ne 1) { throw 'Magazine fixture must contain one round.' }
+                        }
+                        $magSlot = $magWeapon.Slots[0]
+                        $magSlot.Add($mag)
+                        $spares.Clear()
+                        if ($loaded -and !$cylinder) {
+                            while ($space = $stash.Grid.FindLocationForItem($oldMount)) {
+                                $spare = [EFT.InventoryLogic.Mod]::new([Guid]::NewGuid().ToString('N').Substring(8), $mountTemplate)
+                                if ($space.Add($spare, $false).Failed) { throw 'Could not fill the fixture stash.' }
+                                $spares.Add($spare)
+                            }
+                            if ($assemble) {
+                                $argsForPlan = [object[]]@([EFT.InventoryLogic.Item[]]@(), $null)
+                                $hook.GetMethod('Prefix', $flags).Invoke($null, $argsForPlan)
+                                $blocked = [EFT.InventoryLogic.WeaponAssembler]::AssembleAsync($magWeapon, $barePlan, $controller, $argsForPlan[0], $true)
+                                if (!$blocked.Failed) { throw 'Assembly accepted a loaded magazine with no stash space.' }
+                                foreach ($spare in $spares) { $null = $stash.Grid.Remove($spare, $false) }
+                                $spares.Clear()
+                            } elseif ($live.SelectCheck($pickerItem, $magSlot, [ref]$reason)) {
+                                throw 'A preview swap accepted a loaded magazine with no stash space.'
+                            }
+                            if ($magSlot.ContainedItem -ne $mag -or $mag.Count -ne 1) { throw 'A failed placement disturbed the loaded magazine.' }
+                        }
+                        if ($assemble) {
+                            $arguments = [object[]]@([EFT.InventoryLogic.Item[]]@(), $null)
+                            $hook.GetMethod('Prefix', $flags).Invoke($null, $arguments)
+                            $moves = [EFT.InventoryLogic.WeaponAssembler]::AssembleAsync($magWeapon, $barePlan, $controller, $arguments[0], $true)
+                            if ($moves.Failed) { throw "Magazine removal plan failed: $($moves.Error)" }
+                            foreach ($move in $moves.Value) {
+                                $applied = $move.Execute()
+                                if ($applied.Failed) { throw "Magazine removal move failed: $($applied.Error)" }
+                            }
+                            $completion = [object[]]@($controller, $arguments[1], [Threading.Tasks.Task]::FromResult($true))
+                            $hook.GetMethod('Postfix', $flags).Invoke($null, $completion)
+                            $null = $completion[2].GetAwaiter().GetResult()
+                        } else {
+                            if (!$live.Select($fittedItem, $magSlot, $false, [ref]$reason) -or $magSlot.ContainedItem -ne $fittedItem) {
+                                throw "Magazine swap failed: $reason"
+                            }
+                            foreach ($spare in $spares) { $null = $stash.Grid.Remove($spare, $false) }
+                            $null = $magSlot.RemoveItemWithoutRestrictions()
+                            $null = $stash.Grid.FindLocationForItem($fittedItem).Add($fittedItem, $false)
+                        }
+                        if ($loaded) {
+                            if ($mag.CurrentAddress.Container -ne $stash.Grid -or $mag.Count -ne 1 -or $round.Parent.Container.ParentItem -ne $mag) {
+                                throw "Loaded magazine or its round lost (assemble=$assemble, cylinder=$cylinder)."
+                            }
+                            $null = $stash.Grid.Remove($mag, $false)
+                        } elseif ($null -ne $mag.CurrentAddress) { throw 'An empty displaced magazine survived.' }
+                    }
+                }
+            }
+            $null = $stash.Grid.Remove($magWeapon, $false)
+            Write-Output 'PASS  Modding and Assemble put partially loaded magazines and cylinders in the stash with their round, and discard empty ones.'
+        } finally {
+            $harmony.Unpatch($runTransaction, $fixture)
+        }
         $id = $pickerItem.StringTemplateId
         $null = $unlocks.Add($id)
         $filter = [EFT.InventoryLogic.ItemFilter]::new()

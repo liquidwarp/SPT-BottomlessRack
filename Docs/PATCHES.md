@@ -1,6 +1,6 @@
 # Harmony patch inventory
 
-BottomlessRack patches 40 runtime targets, 37 in the EFT client and 3 in the SPT server. Each row names the patch class, the original method, when the hook runs, and the feature it supports. A target with both a prefix and a postfix counts once. The two assemblies register their patches at startup. [Client registration](../Client/Plugin.cs) · [Server registration](../Server/Lifecycle.cs)
+BottomlessRack patches 43 runtime targets, 40 in the EFT client and 3 in the SPT server. Each row names the patch class, the original method, when the hook runs, and the feature it supports. A target with both a prefix and a postfix counts once. The two assemblies register their patches at startup. [Client registration](../Client/Plugin.cs) · [Server registration](../Server/Lifecycle.cs)
 
 ## Server ownership scans and sale enforcement
 
@@ -36,7 +36,7 @@ The picker displays a catalogue entry as a preview. Selecting it requests a real
 | `EquipAvailabilityPatch` | `EquipItemWindow` implementation of `SelectableItemContext.ISelectionContext.IsActive` | Prefix | Enables preview selection when the catalogue is ready and shows **Spawn to stash and equip** on hover. |
 | `EquipSelectionPatch` | `EquipItemWindow.ItemSelectedHandler` | Prefix | Requests one copy, then passes it to EFT’s equip action if the window, slot, and previous item still match. An issued copy stays in the stash if equip fails. |
 
-## Client weapon Modding and Edit Build
+## Client Modding and Edit Build
 
 Live Modding fits a physical attachment. Edit Build lets the player plan a weapon and request missing unlocked parts when they click **Assemble**. [Selector patches](../Client/Selectors.cs) · [Assembly patches](../Client/BuildAssembly.cs)
 
@@ -45,6 +45,7 @@ Live Modding fits a physical attachment. Edit Build lets the player plan a weapo
 | `ModdingScreenPatch` | `WeaponModdingScreen.Show(Item, InventoryController, CompoundItem[])` | Postfix | Tracks the active weapon screen and starts catalogue refreshes, so later installs can verify their destination. |
 | `EquippedModdingSlotPatch` | `ModdingScreenSlotView.Show` | Postfix | Restores hover and click on an equipped weapon’s vital slots when the slot and any containing equipment slot permit editing. |
 | `ModdingRowsPatch` | `WeaponModdingManipulation.GetItemCollections` | Postfix | Adds compatible unlocked attachment previews to the live weapon’s slot dropdown. |
+| `ReplaceModdingPartPatch` | `WeaponModdingManipulation.Select(Item, Slot, bool, out Error)` | Prefix | Simulates replacement of a fitted part on any gear. On click, swaps a loaded magazine directly into the stash. Other displaced parts are discarded after the swap succeeds. |
 | `BuildRowsPatch` | `EditBuildManipulation.GetItemCollections` | Postfix | Adds compatible unlocked templates missing from the build editor’s choices, avoiding duplicates from EFT or other providers. |
 | `InstallPatch` | `DropdownManipulation.Select(Item, Slot, out Error)` | Prefix | Checks a live preview click for fitting conflicts before issuing a part. On success it fits the real copy if the screen, weapon, and slot still match. |
 | `ModdingPreviewLabelPatch` | `DropDownMenu.CreateDropdownModdingItemView` | Postfix | Labels catalogue previews and unlocked Edit Build choices **Unlocked** and hides Trader Modding price tags on those rows. |
@@ -53,6 +54,8 @@ Live Modding fits a physical attachment. Edit Build lets the player plan a weapo
 | `UnlockedWeaponBodyPatch` | `EditBuildScreen.CheckForVitalParts` | Postfix | Enables Assemble when EFT found no suitable body and the catalogue can supply the planned weapon. |
 | `MissingBuildItemsPatch` | `EditBuildScreen.GetMissingBuildItems` | Postfix | Corrects shortage quantities for unlocked parts, accounting for installed parts, loose copies, and children fitted to those copies. Each physical part counts once. |
 | `BuildAssembly` | `EditBuildScreen.TryToAssembleBuild` | Prefix | Uses an owned body when available, can issue the weapon’s standard build, then requests only missing unlocked parts. Hands the result to EFT’s assembler or opens its purchase window for remaining locked shortages. |
+| `AssemblyDiscards` | `WeaponAssembler.Assemble` | Prefix + postfix | Tracks one live assembly and discards eligible removed parts after all native moves succeed, rechecking for loaded magazines. [Source](../Client/AssemblyDiscards.cs) |
+| `AssemblyDiscards.Plan` | `WeaponAssembler.AssembleAsync` | Transpiler | Keeps rounds in a removed cylinder and sends loaded magazines through EFT’s stash placement. Detached parts due for discard stay on the sorting table until assembly completes. [Source](../Client/AssemblyDiscards.cs) |
 
 ## Client equipment presets
 
@@ -93,5 +96,6 @@ The restriction covers gear in the mod’s categories and containers holding it,
 
 ## Test-only hooks
 
+- `ItemController.TryRunNetworkTransaction` executes transactions against an in-memory inventory for the live Modding and Edit Build discard checks. [Contract tests](../Tests/Test-Contracts.ps1)
 - `RequestHandler.GetJsonAsync` and `RequestHandler.PostJsonAsync` record catalogue requests and return fixture replies. Prefixes on `Assortment.Purchase` and `AutoExchange.ExchangeCurrency` supply controlled outcomes when the trader guards allow the call. [Contract tests](../Tests/Test-Contracts.ps1)
 - `EquipmentBuildsScreen.TryApplyBuild` counts simulations. `EquipmentBuildsScreen.ApplyBuild` counts applications and skips the real submission so the fixture can exercise transfers in memory. [Equipment preset tests](../Tests/Test-EquipmentPresets.ps1)
