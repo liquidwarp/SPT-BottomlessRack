@@ -4,7 +4,7 @@ BottomlessRack patches 43 runtime targets, 40 in the EFT client and 3 in the SPT
 
 ## Server ownership scans and sale enforcement
 
-Gear earns unlocks when a scan finds it in the PMC’s equipment, stash, sorting table, or supported hideout displays, including nested contents. This is how Scav loot qualifies after transfer to the PMC. Catalogue reads also trigger a scan. The client checks that it is out of raid before sending a spawn request, and the server handles the grant through an SPT item-event route. [Lifecycle patches](../Server/Lifecycle.cs) · [Discovery](../Server/Discovery.cs) · [Gear service](../Server/GearService.cs) · [Routes](../Server/Routers.cs)
+Gear earns unlocks when a scan finds it in the PMC’s equipment, stash, sorting table, or supported hideout displays, including nested contents. Each new unlock also examines the template for the PMC and Scav. Scav loot qualifies after transfer to the PMC. Catalogue reads also trigger a scan. The client checks that it is out of raid before sending a spawn request, and the server handles the grant through an SPT item-event route. [Lifecycle patches](../Server/Lifecycle.cs) · [Discovery](../Server/Discovery.cs) · [Gear service](../Server/GearService.cs) · [Routes](../Server/Routers.cs)
 
 | Patch | Target | Hook | Feature |
 | --- | --- | --- | --- |

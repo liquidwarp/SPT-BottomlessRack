@@ -33,6 +33,7 @@ public sealed class IntegrationTests : ServerFixture
         Assert.That(same.Revision, Is.EqualTo(first.Revision));
         Assert.That(same.Receipt.Sequence, Is.EqualTo(1));
         Assert.That(same.Templates, Is.Empty);
+        Assert.That(same.Examined, Is.Empty);
         Assert.That(same.WeaponBuilds, Is.Empty);
 
         var rifle = NewItem(Rifle, Inventory.Stash!.Value, "hideout");

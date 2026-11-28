@@ -40,6 +40,7 @@ public sealed class GearDefinitions(TemplateTable templates, GlobalTable globals
     public RecipePart[] Recipe(MongoId id) => _recipes.GetOrAdd(id, static (tpl, self) => self.MakeStandaloneRecipe(tpl), this);
 
     public bool CanIssue(MongoId id) => Eligible(id) && Recipe(id).Length > 0;
+    internal bool ExaminedByDefault(MongoId id) => templates.Items[id].Properties?.ExaminedByDefault == true;
     public bool IsWeapon(MongoId id) => MatchesFilter(id, BaseClasses.WEAPON);
 
     private RecipePart[] MakeStandaloneRecipe(MongoId id)

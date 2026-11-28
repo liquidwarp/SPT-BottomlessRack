@@ -75,18 +75,30 @@ public sealed class GearService(ProfileHelper profiles, GearDefinitions gear, In
         if (restored)
         {
             // A receipt read can be the first access to an old profile after a server restart.
-            ledger = ledger.ReconcileWeaponParts(gear);
-            StoreLedger(id, profile, null, ledger);
+            var updated = ledger.ReconcileWeaponParts(gear);
+            StoreLedger(id, profile, ledger, updated, restored: true);
+            return updated;
         }
         return ledger;
     }
 
-    private void StoreLedger(MongoId id, SptProfile profile, UnlockLedger? previous, UnlockLedger current)
+    private void StoreLedger(MongoId id, SptProfile profile, UnlockLedger previous, UnlockLedger current, bool restored = false)
     {
-        if (ReferenceEquals(previous, current)) return;
+        if (ReferenceEquals(previous, current) && !restored) return;
         var gate = SaveLock(id);
         gate.Wait();
-        try { current.Write(profile); }
+        try
+        {
+            if (!ReferenceEquals(previous, current))
+                foreach (var tpl in current.Templates)
+                {
+                    if (previous.Templates.Contains(tpl) || gear.ExaminedByDefault(tpl)) continue;
+                    // SPT shares examinations between characters. False is an unread handbook entry.
+                    profile.CharacterData?.PmcData?.Encyclopedia?.TryAdd(tpl, false);
+                    profile.CharacterData?.ScavData?.Encyclopedia?.TryAdd(tpl, false);
+                }
+            current.Write(profile);
+        }
         finally { gate.Release(); }
     }
 
@@ -120,6 +132,8 @@ public sealed class GearService(ProfileHelper profiles, GearDefinitions gear, In
             }
             var catalogue = new Catalogue { Revision = state.Templates.Count, Receipt = state.Receipt };
             if (!reconcile || knownRevision == catalogue.Revision) return catalogue;
+            if (profile.CharacterData?.PmcData?.Encyclopedia is { } encyclopedia)
+                catalogue.Examined = encyclopedia.Keys.Select(t => t.ToString()).Where(state.Templates.Contains).ToArray();
             catalogue.Templates = state.Templates.Where(t => MongoId.IsValidMongoId(t) && gear.CanIssue(t))
                 .Order(StringComparer.Ordinal).ToArray();
             foreach (var tpl in catalogue.Templates)

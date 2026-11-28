@@ -84,6 +84,7 @@ public sealed class Catalogue
 {
     [WireName("revision")] public int Revision { get; set; }
     [WireName("templates")] public string[] Templates { get; set; } = Array.Empty<string>();
+    [WireName("examined")] public string[] Examined { get; set; } = Array.Empty<string>();
     [WireName("weaponBuilds")] public Dictionary<string, WeaponBuildPart[]> WeaponBuilds { get; set; } = new();
     [WireName("receipt")] public SpawnReceipt Receipt { get; set; } = new SpawnReceipt();
 }

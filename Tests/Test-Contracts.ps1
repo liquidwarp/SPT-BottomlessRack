@@ -314,8 +314,20 @@ public static class CatalogueHttpFixture
         $menuController = [Runtime.CompilerServices.RuntimeHelpers]::GetUninitializedObject([EFT.InventoryLogic.OfflineInventoryController])
         $weapon = '000000000000000000000055'
         $optic = $pickerItem.StringTemplateId
+        $pmc = [Runtime.CompilerServices.RuntimeHelpers]::GetUninitializedObject([EFT.Profile])
+        $scav = [Runtime.CompilerServices.RuntimeHelpers]::GetUninitializedObject([EFT.Profile])
+        $pmc.Id = '000000000000000000000021'
+        $scav.Id = '000000000000000000000022'
+        [EFT.Profile].GetField('PetId').SetValue($pmc, [EFT.MongoID]$scav.Id)
+        foreach ($character in $pmc, $scav) {
+            [EFT.Profile].GetField('Encyclopedia').SetValue($character, [Collections.Generic.Dictionary[EFT.MongoID,bool]]::new())
+        }
+        $pmc.Encyclopedia.Add([EFT.MongoID]$weapon, $true)
+        $instanceFields = [Reflection.BindingFlags]'Public, NonPublic, Instance'
+        [EFT.ClientBackendSession].GetField('_profile', $instanceFields).SetValue($backend._session, $pmc)
+        [EFT.ClientBackendSession].GetField('_allProfiles', $instanceFields).SetValue($backend._session, [EFT.Profile[]]@($pmc, $scav))
         $recipe = @(@{ templateId = $weapon; parentIndex = -1 }, @{ templateId = $optic; parentIndex = 0; slotId = 'mod_scope' })
-        $full = @{ revision = 2; templates = @($weapon, $optic); weaponBuilds = @{ $weapon = $recipe }; receipt = @{ sequence = 0 } }
+        $full = @{ revision = 2; templates = @($weapon, $optic); examined = @($weapon, $optic); weaponBuilds = @{ $weapon = $recipe }; receipt = @{ sequence = 0 } }
         foreach ($data in $full, @{ revision = 2; receipt = @{ sequence = 1 } }) {
             [CatalogueHttpFixture]::Reply = @{ data = $data } | ConvertTo-Json -Depth 8 -Compress
             $menu.InventoryController = $menuController
@@ -325,6 +337,9 @@ public static class CatalogueHttpFixture
                 !$unlocks.SetEquals([string[]]@($weapon, $optic)) -or $parts.Count -ne 2 -or $parts[1].TemplateId -ne $optic) {
                 throw 'Both menu reads must leave the current inventory with its earned templates and weapon recipe.'
             }
+        }
+        if (!$pmc.Examined($pickerItem) -or !$scav.Examined($pickerItem) -or !$pmc.Encyclopedia[[EFT.MongoID]$weapon]) {
+            throw 'Catalogue refresh must examine unlocked templates on both profiles and preserve read entries.'
         }
         if ($requests.Count -ne 2 -or $requests[0].Length -ne 1 -or $requests[0][0] -ne '/bottomlessrack/catalogue' -or
             $requests[1][0] -ne $requests[0][0] -or ($requests[1][1] | ConvertFrom-Json).knownRevision -ne 2) {

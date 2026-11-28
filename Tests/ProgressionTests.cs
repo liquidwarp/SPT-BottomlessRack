@@ -136,6 +136,43 @@ public sealed class ProgressionTests : ServerFixture
     }
 
     [Test]
+    public async Task UnlockExaminesRecoveredAndFactoryGearAndPreservesReadEntries()
+    {
+        var factoryPart = Gear.Recipe(Rifle).Skip(1).First(p => Gear.Eligible(p.Template)).Template;
+        var original = Templates.Items[factoryPart];
+        var receiver = new MongoId();
+        Templates.Items[factoryPart] = original with { Properties = original.Properties! with { ExaminedByDefault = false } };
+        Templates.Items[receiver] = Templates.Items[Rifle] with
+        {
+            Id = receiver, Properties = Templates.Items[Rifle].Properties! with { ExaminedByDefault = false }
+        };
+        try
+        {
+            Pmc.Encyclopedia = new() { [factoryPart] = true };
+            var scav = Profile.CharacterData!.ScavData = new() { Encyclopedia = [] };
+            Items.Add(NewItem(Rifle, Inventory.Stash!.Value, "hideout"));
+            Items.Add(NewItem(receiver, Inventory.Stash.Value, "hideout"));
+            var catalogue = await Service.Read(Session, true, default);
+            Assert.That(Pmc.Encyclopedia[factoryPart], Is.True);
+            Assert.That(scav.Encyclopedia[factoryPart], Is.False);
+            Assert.That(Pmc.Encyclopedia[receiver], Is.False);
+            Assert.That(scav.Encyclopedia[receiver], Is.False);
+            Assert.That(catalogue.Examined, Does.Contain(factoryPart.ToString()).And.Contain(receiver.ToString()));
+            Assert.That(catalogue.Templates, Does.Not.Contain(receiver.ToString()));
+            Assert.That(Pmc.Info!.Experience, Is.Zero);
+            scav.Encyclopedia[receiver] = true;
+            Service.Observe(Session);
+            Assert.That(scav.Encyclopedia[receiver], Is.True);
+            Assert.That(Pmc.Encyclopedia.ContainsKey(Ammo), Is.False);
+        }
+        finally
+        {
+            Templates.Items[factoryPart] = original;
+            Templates.Items.Remove(receiver);
+        }
+    }
+
+    [Test]
     public void ArmorIncludesIntegralInsertsAndExcludesRemovablePlates()
     {
         var armor = Templates.Items.Values.First(t => t.Type == "Item" && t.Properties?.Slots?.Any(s =>

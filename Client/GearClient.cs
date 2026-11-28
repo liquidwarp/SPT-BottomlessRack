@@ -84,6 +84,13 @@ internal static class GearClient
             if (!ReferenceEquals(session, _session)) return;
             _requests.Resume(data.Receipt.Sequence);
             if (_revision == data.Revision) return;
+            var pmc = session.Profile;
+            var scav = session.ProfileOfPet;
+            foreach (MongoID id in data.Examined)
+            {
+                if (pmc != null && !pmc.Examined(id)) pmc.LearnInEncyclopedia(id);
+                if (scav != null && !scav.Examined(id)) scav.LearnInEncyclopedia(id);
+            }
             Unlocked.Clear();
             foreach (var id in data.Templates) Unlocked.Add(id);
             WeaponBuilds = data.WeaponBuilds;

@@ -2,7 +2,7 @@
 
 *A seamlessly integrated gear spawner with unlock-based progression*
 
-Buy eligible gear, bring it back to your PMC, or claim it from mail to unlock it permanently. You can make free copies even after you lose the original.
+Buy eligible gear, bring it back to your PMC, or claim it from mail to unlock it permanently. Each unlock automatically examines the item for your PMC and Scav, including standard weapon parts earned with a receiver. Automatic examination grants no XP or Intellect points. You can make free copies even after you lose the original.
 
 Use EFT’s equipment picker, modding, builds and presets views to seamlessly create free copies of unlocked equipment.
 

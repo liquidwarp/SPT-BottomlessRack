@@ -18,6 +18,10 @@ Unlocks use EFT template IDs. The first version covers weapons, attachments, mag
 
 For ownership checks, start at the PMC’s stash, equipment, sorting table, and player-owned displays such as the weapon rack. Follow the item tree through cases and secure containers to find eligible contents. Trader listings, handbook entries, build previews, and pending mail live outside those roots.
 
+Each newly earned template that requires examination gets an unread entry in the PMC and Scav encyclopedias. This includes eligible standard parts credited with a weapon and receivers the catalogue cannot issue. Existing handbook entries keep their read status. The server records examination with the unlock under the profile save lock. A full catalogue reply carries the earned encyclopedia entries so the client can call EFT’s `Profile.LearnInEncyclopedia` for missing entries before refreshing menus. Automatic examination grants no XP or Intellect points. [Unlock handling](../Server/GearService.cs) · [Client catalogue](../Client/GearClient.cs)
+
+**Verification.** Recover a customized weapon whose standard build includes an unfamiliar part. Open the equipment picker, Modding, and Edit Build after the catalogue refresh. Both the recovered attachment and the earned standard part should be identified. Check the handbook after a profile reload and confirm an unrelated unfamiliar item still requires examination.
+
 ## Using unlocked gear in EFT’s menus
 
 | Where | Player interaction |
