@@ -150,7 +150,7 @@ try {
     }
     $fields = @{
         'EFT.UI.WeaponModding.ModdingScreenSlotView' = @('_locked')
-        'EFT.UI.EquipItemWindow' = @('_slot', '_viewList', '_placeHolder')
+        'EFT.UI.EquipItemWindow' = @('_slot', '_viewList', '_placeHolder', '_inventoryController')
         'EFT.UI.DragAndDrop.GridItemView' = @('TagName', '_tagColor', 'Caption')
         'EFT.UI.DragAndDrop.TradingItemView' = @('_traderAssortment', '_price', '_currency', '_schemeIcon')
         'EFT.UI.TraderDealScreen' = @('_autoExchange', '_traderGridView', '_trader')
@@ -700,14 +700,41 @@ public static class ModdingTransactionFixture
                 $selector = if ($editBuild) { [EFT.InventoryLogic.EditBuildManipulation]::new($controller, $collections, $null, $null, $false) }
                     else { [EFT.InventoryLogic.WeaponModdingManipulation]::new($controller, $collections) }
                 $rows = @($selector.GetItemCollections($pickerSlot))
-                $expected = if ($hasOwned -and $editBuild) { @($fittedItem) }
-                    elseif ($hasOwned) { @($fittedItem, $pickerItem) } else { @($pickerItem) }
-                if ($rows.Count -ne @($expected).Count) { throw "Wrong row count (Edit Build=$editBuild, owned=$hasOwned)" }
-                for ($i = 0; $i -lt $rows.Count; $i++) {
-                    if (![object]::ReferenceEquals($rows[$i], @($expected)[$i])) { throw 'A native picker item was substituted.' }
+                $expected = if ($hasOwned) { $fittedItem } else { $pickerItem }
+                if ($rows.Count -ne 1 -or $rows[0] -ne $expected) {
+                    throw "Wrong picker row (Edit Build=$editBuild, owned=$hasOwned)."
                 }
             }
         }
+        # Exercise both picker modes with the same owned rows, including a matching copy outside the stash.
+        $emptyMount = [EFT.InventoryLogic.Mod]::new('000000000000000000000071', $mountTemplate)
+        $mountId = $emptyMount.StringTemplateId
+        $cache.Add($mountId, $emptyMount)
+        $null = $unlocks.Add($mountId)
+        $filter.Filter = [EFT.MongoID[]]@($mountTemplate._id)
+        $otherMount = [EFT.InventoryLogic.Mod]::new('000000000000000000000072', $mountTemplate)
+        $bareMount = [EFT.InventoryLogic.Mod]::new('000000000000000000000073', $mountTemplate)
+        $otherMount.Slots[0].Add($oldSight)
+        $null = $stash.Grid.FindLocationForItem($otherMount).Add($otherMount, $false)
+        $null = $table.Grid.FindLocationForItem($bareMount).Add($bareMount, $false)
+        $available = [EFT.InventoryLogic.Item[]]@($otherMount, $bareMount)
+        $include = $previewRows.GetMethod('Include', $flags)
+        foreach ($inStash in $false, $true) {
+            if ($inStash) {
+                $null = $table.Grid.Remove($bareMount, $false)
+                $null = $stash.Grid.FindLocationForItem($bareMount).Add($bareMount, $false)
+            }
+            foreach ($equipmentPicker in $false, $true) {
+                $rows = @($include.Invoke($null, [object[]]@($available, $pickerSlot, $stash, $false, $equipmentPicker)))
+                if ($rows[0] -ne $otherMount -or $rows[1] -ne $bareMount -or
+                    ($inStash -and $rows.Count -ne 2) -or
+                    (!$inStash -and ($rows.Count -ne 3 -or $rows[2] -ne $emptyMount))) {
+                    throw "Only a matching mount in the stash should hide the bare preview (equipment=$equipmentPicker, in stash=$inStash)."
+                }
+            }
+        }
+        $null = $cache.Remove($mountId)
+        $null = $unlocks.Remove($mountId)
         foreach ($screenType in [EFT.UI.EditBuildScreen], [EFT.UI.WeaponModding.WeaponModdingScreen]) {
             $screen = [Runtime.CompilerServices.RuntimeHelpers]::GetUninitializedObject($screenType)
             $context = [EFT.InventoryLogic.ModdingSelectableItemContext]::new($screen)
@@ -734,7 +761,7 @@ public static class ModdingTransactionFixture
     Write-Output 'PASS  The first menu entry loads the catalogue. Reentry sends its revision and preserves its templates and weapon recipe.'
     Write-Output 'PASS  Only the exact preview click in live Modding requires a ready catalogue.'
     Write-Output 'PASS  A conflicting attachment blocks preview hover and click with the stash error, and removing it permits a move or swap.'
-    Write-Output 'PASS  Edit Build keeps the native item or appends one earned choice. Live Modding keeps owned and catalogue rows distinct.'
+    Write-Output 'PASS  Equipment and live Modding hide the preview for a matching stash build. Edit Build adds only missing templates.'
 
     # Exercise the actual trader hooks with managed EFT objects, without constructing Unity views.
     $privateInstance = [Reflection.BindingFlags]'Instance, NonPublic'

@@ -18,6 +18,8 @@ Use EFT’s equipment picker, modding, builds and presets views to seamlessly cr
 | PMC trader sales and flea listings | Traders, including Fence, decline gear in the mod’s categories. You also can’t list it on the flea. Take covered gear out of a container before selling the container. Ammo, medicine and barter goods follow the usual sale rules. |
 | Post-raid Scav Sell All | Sell your remaining Scav loadout to Fence at the normal price. Gear you transfer to your PMC follows the PMC sale rules. |
 
+In the equipment window and live Modding, the **Unlocked** option is hidden when the picker offers a stash copy with the same parts and contents. For example, an empty magazine matches the empty catalogue magazine. A loaded one does not. A bare scope mount matches only if it has no optic attached. Durability and Found in Raid status do not affect the match.
+
 The PMC sale restriction applies to looted, purchased and spawned copies, even before a template is unlocked. It blocks Ragman’s **Circulate** quest, which requires selling backpacks or tactical rigs. Offers already on the flea can finish normally.
 
 Weapons use their published default build when one is available and usable. Otherwise the mod chooses the complete trader offer with the fewest fitted parts, then the lowest loyalty level. A weapon with no complete offer can be issued bare if it already has every vital part. Earning a weapon also earns its standard parts, including on existing profiles.

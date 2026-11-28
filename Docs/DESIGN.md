@@ -27,7 +27,7 @@ Each newly earned template that requires examination gets an unread entry in the
 | Where | Player interaction |
 | --- | --- |
 | Inspect window | If the examined item’s template is in the PMC’s catalogue, its description begins with **UNLOCKED** followed by a blank line. This also applies to loot inspected during a PMC or Scav raid. |
-| Equipment slot | Keep the existing choices for owned items and mark compatible catalogue rows with an **Unlocked** tag at the top. A weapon has one standard-build row. Selecting it creates the real item and equips it through EFT’s normal slot action. The selectable row stays available for additional copies. |
+| Equipment slot | Keep the existing choices for owned items. Show an **Unlocked** row for a compatible catalogue build when the picker offers no exact stash match. Selecting it creates and equips the item. Weapons use their standard build. |
 | Modding | Choose an owned part or select **Unlocked** to create a copy. Replacing a loaded magazine returns it to the main stash with its rounds. Other replaced parts are discarded with their contents. Removing the part on its own returns it to storage. A blocked row shows EFT’s conflict on hover. Clicking it creates nothing. |
 | Edit Build | Editing, previewing, and saving a weapon preset only change the plan. Assemble uses the selected weapon and available parts first. It can issue the standard build of an unlocked weapon when a body is missing, then creates missing unlocked parts and runs the native assembler. Assemble returns removed loaded magazines to the stash and discards other unused, discardable parts after success. Only remaining locked shortages reach its purchase window. |
 | Weapon context menu | Right-click an owned weapon and choose **Spawn spare magazines** to add empty copies of its fitted magazine to the main stash. |
@@ -38,6 +38,10 @@ Modding and Edit Build are available out of raid at every Workbench level, inclu
 Copies are free, start at factory condition, and are issued with the Found in Raid flag cleared. The server prefers a usable SPT default preset, then a complete trader build for the same receiver, then a bare receiver if it has all vital parts. Each weapon has one standard build, and its eligible fitted parts unlock with the weapon. Magazines and chambers start empty. Packs and rigs start with empty grids. Armor gets its integral inserts, and removable plates unlock individually.
 
 Every new copy first enters the main stash, so even a one-click equip needs free stash space. If there is too little room for the request, show **Not enough stash space** and create zero items. If the item is created but the subsequent equip or install fails, leave the copy in the stash and tell the player where it is. A later equipment preset can reuse a copy that matches its entry.
+
+The equipment window and live Modding compare each offered stash item with the catalogue preview using the equipment preset matcher. It compares templates, quantities, fitted slots, grid contents and loaded rounds recursively. Condition and Found in Raid status do not affect the match. All owned rows keep their place, including rows supplied by other mods. A match on a weapon rack or sorting table does not hide a catalogue row. Edit Build checks only whether the template is already listed. [Selector rows](../Client/Selectors.cs) · [Item tree comparison](../Client/PresetItems.cs)
+
+**Verification.** Open the picker with a loaded magazine or a mount carrying an optic in the stash. Confirm the empty magazine or bare mount is still offered. Add an exact stash copy and reopen the picker. Both owned copies should appear and the catalogue row should disappear. Remove the exact copy and reopen to see the catalogue row again.
 
 ### Switching equipment presets
 

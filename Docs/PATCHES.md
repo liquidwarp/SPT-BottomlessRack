@@ -31,7 +31,7 @@ The picker displays a catalogue entry as a preview. Selecting it requests a real
 | Patch | Target | Hook | Feature |
 | --- | --- | --- | --- |
 | `StashPatch` | `InventoryScreen.Show(InventoryScreenController)` | Postfix | Binds the inventory controller and refreshes the catalogue when an accessible out-of-raid inventory opens. |
-| `EquipRowsPatch` | `EquipItemWindow.GetAvailableItems` | Postfix | Adds compatible unlocked previews alongside owned choices and refreshes the rows when the catalogue changes. Weapons appear in their standard build. |
+| `EquipRowsPatch` | `EquipItemWindow.GetAvailableItems` | Postfix | Adds a compatible unlocked preview when no offered stash item matches its full tree. Weapons use their standard build. Refreshes rows when the catalogue changes. |
 | `EquipPreviewTagPatch` | `EquipItemWindow.RefreshItemViews` | Postfix | Tags preview rows **Unlocked** after EFT binds their views and hides the empty-list message when previews are available. |
 | `EquipAvailabilityPatch` | `EquipItemWindow` implementation of `SelectableItemContext.ISelectionContext.IsActive` | Prefix | Enables preview selection when the catalogue is ready and shows **Spawn to stash and equip** on hover. |
 | `EquipSelectionPatch` | `EquipItemWindow.ItemSelectedHandler` | Prefix | Requests one copy, then passes it to EFT’s equip action if the window, slot, and previous item still match. An issued copy stays in the stash if equip fails. |
@@ -44,7 +44,7 @@ Live Modding fits a physical attachment. Edit Build lets the player plan a weapo
 | --- | --- | --- | --- |
 | `ModdingScreenPatch` | `WeaponModdingScreen.Show(Item, InventoryController, CompoundItem[])` | Postfix | Tracks the active weapon screen and starts catalogue refreshes, so later installs can verify their destination. |
 | `EquippedModdingSlotPatch` | `ModdingScreenSlotView.Show` | Postfix | Restores hover and click on an equipped weapon’s vital slots when the slot and any containing equipment slot permit editing. |
-| `ModdingRowsPatch` | `WeaponModdingManipulation.GetItemCollections` | Postfix | Adds compatible unlocked attachment previews to the live weapon’s slot dropdown. |
+| `ModdingRowsPatch` | `WeaponModdingManipulation.GetItemCollections` | Postfix | Adds compatible unlocked attachment previews when no offered stash part matches the preview and its contents. |
 | `ReplaceModdingPartPatch` | `WeaponModdingManipulation.Select(Item, Slot, bool, out Error)` | Prefix | Simulates replacement of a fitted part on any gear. On click, swaps a loaded magazine directly into the stash. Other displaced parts are discarded after the swap succeeds. |
 | `BuildRowsPatch` | `EditBuildManipulation.GetItemCollections` | Postfix | Adds compatible unlocked templates missing from the build editor’s choices, avoiding duplicates from EFT or other providers. |
 | `InstallPatch` | `DropdownManipulation.Select(Item, Slot, out Error)` | Prefix | Checks a live preview click for fitting conflicts before issuing a part. On success it fits the real copy if the screen, weapon, and slot still match. |

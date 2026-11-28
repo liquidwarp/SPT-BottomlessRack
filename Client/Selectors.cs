@@ -67,17 +67,20 @@ internal static class PreviewRows
     }
 
     internal static IEnumerable<Item> Include(IEnumerable<Item> owned, Slot slot,
-        bool editBuild = false, bool equipment = false)
+        Stash stash = null, bool editBuild = false, bool equipment = false)
     {
-        var shown = editBuild ? new HashSet<string>() : null;
+        var shown = new HashSet<string>();
         foreach (var item in owned)
         {
-            shown?.Add(item.TemplateId);
+            var id = item.StringTemplateId;
+            if (editBuild || (!shown.Contains(id) && GearClient.Unlocked.Contains(id) &&
+                item.IsChildOf(stash) && PresetItems.SameBuild(Get(id), item)))
+                shown.Add(id);
             yield return item;
         }
         foreach (var id in CandidateTemplates(slot))
         {
-            if (shown != null && shown.Contains(id)) continue;
+            if (shown.Contains(id)) continue;
             var item = Get(id);
             if (item == null || !slot.CanAccept(item)) continue;
             if (!equipment && slot.ContainedItem?.TemplateId == item.TemplateId) continue;
@@ -124,12 +127,13 @@ internal static class StashPatch
 internal static class EquipRowsPatch
 {
     [HarmonyPriority(Priority.Last)]
-    private static void Postfix(EquipItemWindow __instance, Slot ____slot, ref IEnumerable<Item> __result)
+    private static void Postfix(EquipItemWindow __instance, Slot ____slot, InventoryController ____inventoryController,
+        ref IEnumerable<Item> __result)
     {
         if (!GearClient.OutOfRaid) return;
         SelectorRefresh.Watch(__instance.gameObject, __instance.RefreshItemViews);
         if (!GearClient.Ready) return;
-        __result = PreviewRows.Include(__result, ____slot, equipment: true);
+        __result = PreviewRows.Include(__result, ____slot, ____inventoryController.Inventory.Stash, equipment: true);
     }
 }
 
@@ -230,9 +234,9 @@ internal static class EquippedModdingSlotPatch
 [HarmonyPatch(typeof(WeaponModdingManipulation), nameof(WeaponModdingManipulation.GetItemCollections))]
 internal static class ModdingRowsPatch
 {
-    private static void Postfix(Slot slot, ref IEnumerable<Item> __result)
+    private static void Postfix(WeaponModdingManipulation __instance, Slot slot, ref IEnumerable<Item> __result)
     {
-        if (GearClient.Ready) __result = PreviewRows.Include(__result, slot);
+        if (GearClient.Ready) __result = PreviewRows.Include(__result, slot, __instance.InventoryController.Inventory.Stash);
     }
 }
 
